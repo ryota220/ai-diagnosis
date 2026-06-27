@@ -1,0 +1,23 @@
+# Render Blueprint — 予約導線つきAI診断LPビルダー
+# Render ダッシュボードで「New +」→「Blueprint」→ このリポジトリを選ぶと
+# 下記の設定で自動デプロイされます。
+services:
+  - type: web
+    name: ai-diagnosis
+    runtime: python
+    plan: free
+    # 依存パッケージなし（標準ライブラリのみ）。requirements.txt は空でOK。
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python server.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      # 無料プランはディスクが揮発するため、回答データを残したい場合は
+      # 有料プランに上げて下の disk 設定と DATA_DIR を有効化してください。
+      # - key: DATA_DIR
+      #   value: /var/data
+    # 永続ディスク（有料プランで有効）。回答データを永続化したい場合に使用。
+    # disk:
+    #   name: data
+    #   mountPath: /var/data
+    #   sizeGB: 1

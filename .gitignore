@@ -1,0 +1,6 @@
+# ローカルのデータ・一時ファイルはデプロイに含めない
+data/
+__pycache__/
+*.pyc
+.DS_Store
+.claude/
