@@ -1,0 +1,2 @@
+# このアプリは Python 標準ライブラリのみで動作します（追加パッケージなし）。
+# Render の Python ビルドが requirements.txt を要求するため、空のまま置いています。

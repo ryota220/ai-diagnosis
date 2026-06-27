@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>予約導線つきAI診断LPビルダー</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🩺</text></svg>">
+</head>
+<body>
+  <header class="app-header" id="app-header">
+    <div class="logo" onclick="location.hash='#/'">
+      <span class="mark">🩺</span>
+      <span>AI診断LPビルダー</span>
+    </div>
+    <nav>
+      <a href="#/">診断一覧</a>
+      <a href="#/generate">AIで作成</a>
+    </nav>
+    <div class="spacer"></div>
+    <div class="who">予約転換ツール · MVP</div>
+  </header>
+
+  <main id="root"></main>
+
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
