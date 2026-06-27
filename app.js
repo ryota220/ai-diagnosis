@@ -772,27 +772,37 @@ function paintPubTop(root) {
 function paintPubQuestion(root) {
   const st = pubState; const d = st.diag; const qi = st.qIndex;
   const q = d.questions[qi];
-  const pct = Math.round((qi) / d.questions.length * 100);
+  const total = d.questions.length;
+  const pct = Math.round((qi) / total * 100);
+  const animClass = st.dir === 'back' ? 'q-card q-enter-back' : 'q-card q-enter';
+  const answered = st.answers[q.id]; // 戻ったときに前回の回答を強調
   root.innerHTML = `
     <div class="pub"><div class="pub-inner">
-      <div class="progress"><i style="width:${pct}%"></i></div>
-      <div class="q-count">${qi + 1} / ${d.questions.length}</div>
-      <div class="q-text">${esc(q.text)}</div>
-      <div id="choices">
-        ${q.choices.map((c, ci) => `<button class="choice" data-ci="${ci}">${esc(c.text)}</button>`).join('')}
+      <div class="q-head">
+        <div class="progress"><i style="width:${pct}%"></i></div>
+        <div class="q-step"><span class="cur">${qi + 1}</span><span class="tot"> / ${total} 問</span></div>
+      </div>
+      <div class="${animClass}" data-qkey="${qi}">
+        <div class="q-badge">Q${qi + 1}</div>
+        <div class="q-text">${esc(q.text)}</div>
+        <div id="choices">
+          ${q.choices.map((c, ci) => `<button class="choice${answered === ci ? ' picked' : ''}" data-ci="${ci}">${esc(c.text)}</button>`).join('')}
+        </div>
       </div>
       ${qi > 0 ? `<button class="btn ghost block q-back" id="pub-back">← 前の質問に戻る</button>` : ''}
     </div></div>`;
+  if (window.scrollTo) window.scrollTo(0, 0);
 
   $('#choices').querySelectorAll('.choice').forEach(btn => {
     btn.addEventListener('click', () => {
       st.answers[q.id] = Number(btn.dataset.ci);
-      if (qi + 1 < d.questions.length) { st.qIndex++; paintPublic(root); }
+      st.dir = 'fwd';
+      if (qi + 1 < total) { st.qIndex++; paintPublic(root); }
       else { finishDiagnosis(root); }
     });
   });
   const back = $('#pub-back');
-  if (back) back.addEventListener('click', () => { st.qIndex--; paintPublic(root); });
+  if (back) back.addEventListener('click', () => { st.dir = 'back'; st.qIndex--; paintPublic(root); });
 }
 
 function finishDiagnosis(root) {

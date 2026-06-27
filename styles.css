@@ -201,10 +201,32 @@ textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
 .cta-big.accent:hover { filter: brightness(.96); }
 .pub-note { text-align: center; color: var(--muted); font-size: 12px; margin-top: 12px; }
 
-.progress { height: 8px; background: #eef0f4; border-radius: 999px; overflow: hidden; margin-bottom: 6px; }
-.progress > i { display: block; height: 100%; background: linear-gradient(90deg, var(--brand), #7c3aed); transition: width .3s; }
+.progress { height: 8px; background: #eef0f4; border-radius: 999px; overflow: hidden; margin-bottom: 8px; }
+.progress > i { display: block; height: 100%; background: linear-gradient(90deg, var(--brand), #7c3aed); transition: width .35s ease; }
 .q-count { text-align: right; color: var(--muted); font-size: 12px; margin-bottom: 18px; }
+
+/* 質問ヘッダー（進捗 + ステップ表示） */
+.q-head { margin-bottom: 18px; }
+.q-step { text-align: right; }
+.q-step .cur { font-size: 20px; font-weight: 900; color: var(--brand-ink); letter-spacing: -.02em; }
+.q-step .tot { font-size: 12px; color: var(--muted); font-weight: 700; }
+
+/* 質問カード：切り替わるたびにスライドインして「進んだ感」を出す */
+.q-card { will-change: transform, opacity; }
+.q-enter { animation: qIn .3s cubic-bezier(.22,.61,.36,1); }
+.q-enter-back { animation: qInBack .3s cubic-bezier(.22,.61,.36,1); }
+@keyframes qIn { from { opacity: 0; transform: translateX(34px); } to { opacity: 1; transform: none; } }
+@keyframes qInBack { from { opacity: 0; transform: translateX(-34px); } to { opacity: 1; transform: none; } }
+
+/* 大きな質問番号バッジ */
+.q-badge {
+  display: inline-block; font-size: 13px; font-weight: 800; color: var(--brand-ink);
+  background: #eef2ff; border-radius: 999px; padding: 4px 14px; margin-bottom: 14px;
+}
+
 .q-text { font-size: 20px; font-weight: 800; line-height: 1.45; margin: 6px 0 22px; }
+/* 戻ったとき、前回選んだ回答を分かるように */
+.choice.picked { border-color: var(--brand); background: #eef4ff; }
 .choice {
   display: block; width: 100%; text-align: left; background: #fff;
   border: 2px solid var(--line); border-radius: 14px; padding: 16px 18px;
