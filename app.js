@@ -65,7 +65,7 @@ function emptyQuestion(keys) {
 function newDiagnosis() {
   const keys = ['A', 'B', 'C', 'D'];
   return {
-    id: uid('d'), title: '', description: '', slug: '', status: 'draft',
+    id: uid('d'), title: '', adminTitle: '', description: '', slug: '', status: 'draft',
     topCopy: '', lineMessage: '', sourceDefault: 'line', reserveUrl: '',
     keys, resultTypes: keys.map(emptyResultType),
     questions: [emptyQuestion(keys)],
@@ -360,6 +360,7 @@ function cardHtml(d) {
     <div class="card dcard">
       <div>
         <span class="badge ${d.status === 'published' ? 'published' : 'draft'}">${d.status === 'published' ? '● 公開中' : '下書き'}</span>
+        ${d.adminTitle ? `<span class="pill" style="margin-left:6px">🔒 ${esc(d.adminTitle)}</span>` : ''}
         <h3 style="margin-top:8px">${esc(d.title || '(無題の診断)')}</h3>
         <div class="meta">${esc(d.description || '')}</div>
         <div class="kpis">
@@ -436,7 +437,10 @@ function paintTab() {
 
 function tabBasic(d) {
   return `<div class="card pad">
-    <div class="field"><label>診断タイトル</label>
+    <div class="field"><label>管理用タイトル <span class="hint">🔒 内部用・受診者には表示されません（一覧での識別に使用）</span></label>
+      <input type="text" data-field="adminTitle" value="${esc(d.adminTitle||'')}" placeholder="例：ダイエット院A・6月LINE配信用"></div>
+    <hr class="muted-divider">
+    <div class="field"><label>診断タイトル <span class="hint">受診者に表示される公開タイトル</span></label>
       <input type="text" data-field="title" value="${esc(d.title)}" placeholder="例：30代から痩せない原因診断"></div>
     <div class="field"><label>診断説明文</label>
       <textarea data-field="description" placeholder="例：あなたがなぜ痩せにくいのかを7問でチェックします。">${esc(d.description)}</textarea></div>
@@ -662,7 +666,7 @@ async function viewAnalytics(root, id) {
     <div class="wrap">
       <div class="page-title">
         <a class="btn ghost" href="#/">← 一覧</a>
-        <h1>分析：${esc(d.title)}</h1>
+        <h1>分析：${esc(d.adminTitle || d.title)}</h1>
       </div>
       <div class="stat-grid">
         <div class="stat"><div class="n">${s.start}</div><div class="l">診断開始数</div></div>
@@ -922,7 +926,9 @@ document.addEventListener('click', (e) => {
       const src = await api.get(act.dataset.id); if (!src) return;
       const copy = JSON.parse(JSON.stringify(src));
       delete copy.id; delete copy.createdAt; delete copy.updatedAt;
-      copy.title = src.title + '（複製）'; copy.status = 'draft'; copy.slug = '';
+      // 公開タイトルはそのまま、管理用タイトルに「（複製）」を付けて識別しやすく
+      copy.adminTitle = (src.adminTitle || src.title || '無題') + '（複製）';
+      copy.status = 'draft'; copy.slug = '';
       await api.create(copy);
       toast('複製しました'); viewList($('#root'));
     })();
