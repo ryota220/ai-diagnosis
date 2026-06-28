@@ -66,7 +66,7 @@ function newDiagnosis() {
   const keys = ['A', 'B', 'C', 'D'];
   return {
     id: uid('d'), title: '', adminTitle: '', description: '', slug: '', status: 'draft',
-    topCopy: '', lineMessage: '', sourceDefault: 'line', reserveUrl: '',
+    topCopy: '', lineMessage: '', leaveMessage: '', sourceDefault: 'line', reserveUrl: '',
     keys, resultTypes: keys.map(emptyResultType),
     questions: [emptyQuestion(keys)],
     createdAt: nowISO(), updatedAt: nowISO()
@@ -447,6 +447,8 @@ function tabBasic(d) {
       <textarea data-field="description" placeholder="例：あなたがなぜ痩せにくいのかを7問でチェックします。">${esc(d.description)}</textarea></div>
     <div class="field"><label>診断トップページ文章 <span class="hint">受診者が最初に見る導入文（離脱防止）</span></label>
       <textarea data-field="topCopy" style="min-height:130px">${esc(d.topCopy)}</textarea></div>
+    <div class="field"><label>離脱確認ポップアップの文言 <span class="hint">回答途中で「戻る」をした時に表示。空欄なら標準文を使用</span></label>
+      <textarea data-field="leaveMessage" placeholder="${esc(DEFAULT_LEAVE_MSG)}">${esc(d.leaveMessage||'')}</textarea></div>
     <div class="two-col">
       <div class="field"><label>公開URL用スラッグ</label>
         <input type="text" data-field="slug" value="${esc(d.slug)}" placeholder="diet-30"></div>
@@ -710,10 +712,56 @@ let pubState = null;
 
 // 回答中だけ「閉じる確認」を出すためのフラグ。トップ・結果・プレビューでは false。
 let leaveGuard = false;
-function setLeaveGuard(on) { leaveGuard = !!on; }
+function setLeaveGuard(on) {
+  leaveGuard = !!on;
+  if (!on) { leaveTrapInstalled = false; document.querySelector('.modal-back.aidx-leave')?.remove(); }
+}
+
+// 離脱確認ポップアップ（文言は診断ごとに編集可能）
+const DEFAULT_LEAVE_MSG = '診断はまだ途中です。\n今やめると結果が表示されません。続けますか？';
+let leaveMsg = DEFAULT_LEAVE_MSG;
+let leaveTrapInstalled = false;
+
+// タブの強制クローズ／リロード時はブラウザ標準ダイアログ（文言は固定・ブラウザ仕様）
 window.addEventListener('beforeunload', (e) => {
   if (leaveGuard) { e.preventDefault(); e.returnValue = ''; return ''; }
 });
+
+// 「戻る」操作を捕まえて、編集可能なカスタムポップアップを表示する
+function installLeaveTrap() {
+  if (leaveTrapInstalled) return;
+  leaveTrapInstalled = true;
+  history.pushState({ aidxGuard: true }, '', location.href);
+}
+window.addEventListener('popstate', () => {
+  if (leaveGuard && !document.querySelector('.modal-back.aidx-leave')) {
+    history.pushState({ aidxGuard: true }, '', location.href); // ページに留まる
+    showLeaveModal();
+  }
+});
+function showLeaveModal() {
+  const back = document.createElement('div');
+  back.className = 'modal-back aidx-leave';
+  back.innerHTML = `<div class="modal" style="max-width:380px">
+    <div class="m-body" style="text-align:center">
+      <div style="font-size:34px;margin-bottom:8px">✋</div>
+      <p style="font-size:16px;font-weight:700;line-height:1.6;white-space:pre-line;margin:0">${esc(leaveMsg)}</p>
+    </div>
+    <div class="m-foot" style="justify-content:center;gap:10px;border-top:none;padding:0 20px 20px">
+      <button class="btn" id="aidx-leave-yes">中断する</button>
+      <button class="btn primary" id="aidx-leave-no">診断を続ける</button>
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  back.querySelector('#aidx-leave-no').onclick = () => back.remove();
+  back.querySelector('#aidx-leave-yes').onclick = () => {
+    setLeaveGuard(false); back.remove();
+    if (pubState) { // 中断 → 診断トップへ戻す
+      pubState.stage = 'top'; pubState.qIndex = 0; pubState.answers = {}; pubState.started = false; pubState.dir = null;
+      paintPublic($('#root'));
+    }
+  };
+}
 
 async function viewPublic(root, slug, sub, params) {
   let diag;
@@ -785,6 +833,7 @@ function paintPubTop(root) {
 function paintPubQuestion(root) {
   const st = pubState; const d = st.diag; const qi = st.qIndex;
   setLeaveGuard(!st.isPreview); // 回答中のみ確認を出す（プレビューでは出さない）
+  if (!st.isPreview) { leaveMsg = (d.leaveMessage || '').trim() || DEFAULT_LEAVE_MSG; installLeaveTrap(); }
   const q = d.questions[qi];
   const total = d.questions.length;
   const pct = Math.round((qi) / total * 100);
