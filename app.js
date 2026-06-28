@@ -300,6 +300,7 @@ function parseHash() {
 function navigate(hash) { location.hash = hash; }
 
 async function render() {
+  if (typeof setLeaveGuard === 'function') setLeaveGuard(false); // 画面遷移のたびにリセット（回答画面で再有効化）
   const { parts, params } = parseHash();
   const root = $('#root');
   const header = $('#app-header');
@@ -707,6 +708,13 @@ async function viewAnalytics(root, id) {
    ============================================================ */
 let pubState = null;
 
+// 回答中だけ「閉じる確認」を出すためのフラグ。トップ・結果・プレビューでは false。
+let leaveGuard = false;
+function setLeaveGuard(on) { leaveGuard = !!on; }
+window.addEventListener('beforeunload', (e) => {
+  if (leaveGuard) { e.preventDefault(); e.returnValue = ''; return ''; }
+});
+
 async function viewPublic(root, slug, sub, params) {
   let diag;
   if (slug === '__preview__') {
@@ -749,6 +757,7 @@ function paintPublic(root) {
 }
 
 function paintPubTop(root) {
+  setLeaveGuard(false); // トップでは確認を出さない
   const d = pubState.diag;
   const minutes = Math.max(1, Math.round(d.questions.length * 0.3));
   root.innerHTML = `
@@ -775,6 +784,7 @@ function paintPubTop(root) {
 
 function paintPubQuestion(root) {
   const st = pubState; const d = st.diag; const qi = st.qIndex;
+  setLeaveGuard(!st.isPreview); // 回答中のみ確認を出す（プレビューでは出さない）
   const q = d.questions[qi];
   const total = d.questions.length;
   const pct = Math.round((qi) / total * 100);
@@ -819,6 +829,7 @@ function finishDiagnosis(root) {
 }
 
 function paintPubResult(root) {
+  setLeaveGuard(false); // 結果ページでは確認を出さない（CTAへ進める）
   const st = pubState; const d = st.diag;
   const rt = st.result.winner; const totals = st.result.totals;
   const ctaUrl = rt.ctaUrl || d.reserveUrl || '#';
