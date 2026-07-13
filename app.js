@@ -42,6 +42,7 @@ const api = {
   create: (d) => apiJSON('/api/diagnoses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) }),
   update: (d) => apiJSON('/api/diagnoses/' + d.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) }),
   remove: (id) => apiJSON('/api/diagnoses/' + id, { method: 'DELETE' }),
+  upload: (dataUrl) => apiJSON('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl }) }),
   logEvent: (diagnosisId, type, extra = {}) =>
     fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
       body: JSON.stringify({ diagnosisId, type, source: extra.source || 'direct', resultKey: extra.resultKey || null }) }).catch(() => {}),
@@ -52,7 +53,7 @@ function logEvent(diagnosisId, type, extra = {}) { api.logEvent(diagnosisId, typ
 function emptyResultType(key) {
   return {
     key, name: '', priority: TYPE_KEYS.indexOf(key) + 1, summary: '', description: '',
-    mistake: '', risk: '', solution: '', service: '', recommendedMenu: '', ctaText: '予約する', ctaUrl: ''
+    mistake: '', risk: '', solution: '', service: '', recommendedMenu: '', ctaText: '予約する', ctaUrl: '', image: ''
   };
 }
 function emptyChoice(keys) {
@@ -565,6 +566,12 @@ function resultBlock(rt) {
       ${f('ctaText','予約CTAボタン文言','例：栄養状態チェックを予約する')}
     </div>
     ${f('ctaUrl','予約URL（空欄なら基本予約URLを使用）','https://example.com/reserve')}
+    <div class="field"><label>結果ページに表示する画像 <span class="hint">クーポン・ビフォーアフター・案内画像など（任意・8MBまで）</span></label>
+      ${rt.image ? `<div class="rt-img-preview"><img src="${esc(rt.image)}" alt=""><button class="btn sm danger" data-action="rt-img-remove" data-k="${rt.key}">画像を削除</button></div>` : ''}
+      <label class="btn sm" style="cursor:pointer">📤 画像をアップロード
+        <input type="file" accept="image/*" data-imgupload data-k="${rt.key}" style="display:none">
+      </label>
+    </div>
   </div>`;
 }
 
@@ -1007,6 +1014,7 @@ function paintPubResult(root) {
         <div class="type">${esc(rt.name)}</div>
       </div>
       ${rt.summary ? `<p class="pub-lead" style="text-align:center">${esc(rt.summary)}</p>` : ''}
+      ${rt.image ? `<div class="res-image"><img src="${esc(rt.image)}" alt="" loading="lazy"></div>` : ''}
 
       <div class="score-bars">
         ${d.resultTypes.map(t => {
@@ -1083,6 +1091,11 @@ document.addEventListener('click', (e) => {
     if (q.choices.length <= 2) { toast('選択肢は最低2つ必要です'); return; }
     q.choices = q.choices.filter(c => c.id !== act.dataset.c); paintTab(); return;
   }
+  if (action === 'rt-img-remove') {
+    const rt = editState.resultTypes.find(x => x.key === act.dataset.k);
+    if (rt) { rt.image = ''; paintTab(); }
+    return;
+  }
 
   // list actions
   if (action === 'toggle') {
@@ -1134,6 +1147,20 @@ document.addEventListener('change', (e) => {
   if (t.dataset && t.dataset.qtype != null) {
     const q = editState.questions.find(x => x.id === t.dataset.q);
     if (q) { q.type = t.value; paintTab(); }
+  } else if (t.dataset && t.dataset.imgupload != null && t.files && t.files[0]) {
+    const file = t.files[0];
+    if (file.size > 8 * 1024 * 1024) { toast('画像は8MBまでです'); t.value = ''; return; }
+    const rt = editState.resultTypes.find(x => x.key === t.dataset.k);
+    if (!rt) return;
+    toast('画像をアップロード中…');
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const res = await api.upload(reader.result);
+        rt.image = res.url; toast('画像を追加しました'); paintTab();
+      } catch (err) { toast('アップロードに失敗しました'); }
+    };
+    reader.readAsDataURL(file);
   }
 });
 

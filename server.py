@@ -9,6 +9,7 @@
 
 データは data/db.json に保存され、どの端末からでも公開URLで診断を受けられます。
 """
+import base64
 import json
 import os
 import re
@@ -22,8 +23,19 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # データ保存先。本番で永続ディスクを使う場合は環境変数 DATA_DIR を設定する。
 DATA_DIR = os.environ.get("DATA_DIR") or os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "db.json")
+UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")  # アップロード画像の保存先（永続ディスク）
 # 待ち受けポート。Render等は PORT 環境変数で指定される。
 PORT = int(os.environ.get("PORT", "4173"))
+
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8MB
+MIME_EXT = {
+    "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg",
+    "image/gif": "gif", "image/webp": "webp", "video/mp4": "mp4",
+}
+EXT_CTYPE = {
+    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+    "gif": "image/gif", "webp": "image/webp", "mp4": "video/mp4",
+}
 
 _lock = threading.Lock()
 
@@ -155,6 +167,25 @@ class Handler(BaseHTTPRequestHandler):
             fname, ctype = STATIC_FILES[path]
             return self._send_static(fname, ctype)
 
+        # アップロード画像の配信
+        m = re.match(r"^/uploads/([A-Za-z0-9_.-]+)$", path)
+        if m:
+            name = os.path.basename(m.group(1))
+            fpath = os.path.join(UPLOAD_DIR, name)
+            if not os.path.exists(fpath):
+                return self._send_json({"error": "not found"}, 404)
+            ext = name.rsplit(".", 1)[-1].lower()
+            ctype = EXT_CTYPE.get(ext, "application/octet-stream")
+            with open(fpath, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "public, max-age=31536000")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if path == "/api/diagnoses":
             with _lock:
                 db = load_db()
@@ -226,6 +257,27 @@ class Handler(BaseHTTPRequestHandler):
                 db["events"].append(ev)
                 save_db(db)
             return self._send_json({"ok": True})
+
+        if path == "/api/upload":
+            data_url = (body or {}).get("dataUrl") or ""
+            mm = re.match(r"^data:([^;]+);base64,(.*)$", data_url, re.DOTALL)
+            if not mm:
+                return self._send_json({"error": "invalid_data"}, 400)
+            mime = mm.group(1).lower()
+            ext = MIME_EXT.get(mime)
+            if not ext:
+                return self._send_json({"error": "unsupported_type", "mime": mime}, 400)
+            try:
+                raw = base64.b64decode(mm.group(2))
+            except Exception:
+                return self._send_json({"error": "decode_failed"}, 400)
+            if len(raw) > MAX_UPLOAD_BYTES:
+                return self._send_json({"error": "too_large", "maxBytes": MAX_UPLOAD_BYTES}, 413)
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
+            name = gen_id("img") + "." + ext
+            with open(os.path.join(UPLOAD_DIR, name), "wb") as f:
+                f.write(raw)
+            return self._send_json({"url": "/uploads/" + name})
 
         return self._send_json({"error": "not found"}, 404)
 
