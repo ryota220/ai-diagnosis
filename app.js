@@ -129,25 +129,57 @@ function generateDraft(input) {
     '今の状態を「このままではまずい」と感じることがありますか？',
     `${menu || 'プロのサポート'}を受けてみたいと思ったことがありますか？`,
   ];
-  const choiceLabels = ['かなり当てはまる', '少し当てはまる', 'あまり当てはまらない', '当てはまらない'];
+  // 回答の言い回しをバラす（毎回同じ「当てはまる」4択にしない）
+  const scaleSets = [
+    ['かなり当てはまる', '少し当てはまる', 'あまり当てはまらない', '当てはまらない'],
+    ['よくある', 'たまにある', 'ほとんどない', 'まったくない'],
+    ['はい', 'どちらかといえば はい', 'どちらかといえば いいえ', 'いいえ'],
+    ['とても感じる', 'やや感じる', 'あまり感じない', '感じない'],
+  ];
+  // 先頭ほど高得点で、主軸/副軸タイプに配点した choices を作る
+  const scoredChoices = (labels, lead) => labels.map((label, ci) => {
+    const scores = {}; const weight = labels.length - ci;
+    keys.forEach((k, ki) => {
+      let s = 0;
+      if (ki === lead) s = weight;
+      else if (ki === (lead + 1) % keys.length) s = Math.max(0, weight - 2);
+      else s = Math.max(0, weight - 3);
+      scores[k] = s;
+    });
+    return { id: uid('c'), text: label, image: '', scores };
+  });
+  // 複数選択用：業種を問わず使える汎用の習慣・状況リスト（各項目を別タイプへ配点）
+  const multiItems = [
+    '自己流で対処してきた',
+    '忙しくて自分のケアは後回しになりがち',
+    '生活リズム（睡眠・食事・運動）が不規則',
+    '専門家に相談したことがない',
+    '一時的に良くなっても元に戻る',
+    '同じ悩みを長く繰り返している',
+  ];
 
   const questions = [];
   for (let qi = 0; qi < n; qi++) {
-    const text = qTemplates[qi % qTemplates.length];
     const lead = qi % keys.length; // この設問で点を集めやすいタイプ
-    const choices = choiceLabels.map((label, ci) => {
-      const scores = {};
-      const weight = choiceLabels.length - ci; // 当てはまるほど高得点
-      keys.forEach((k, ki) => {
-        let s = 0;
-        if (ki === lead) s = weight;                 // 主軸タイプ
-        else if (ki === (lead + 1) % keys.length) s = Math.max(0, weight - 2); // 副軸
-        else s = Math.max(0, weight - 3);
-        scores[k] = s;
+    if (qi === 1 && n >= 3) {
+      // 2問目：複数選択（当てはまるものを全て）
+      const items = multiItems.slice(0, Math.max(4, Math.min(6, keys.length + 1)));
+      const choices = items.map((label, i) => {
+        const scores = {}; keys.forEach(k => scores[k] = 0);
+        scores[keys[i % keys.length]] = 2;
+        return { id: uid('c'), text: label, image: '', scores };
       });
-      return { id: uid('c'), text: label, scores };
-    });
-    questions.push({ id: uid('q'), text, choices });
+      questions.push({ id: uid('q'), type: 'multi', text: '当てはまる習慣・状況を全て選んでください', choices });
+    } else if (qi === 2 && n >= 3) {
+      // 3問目：スライダー（深刻度）
+      const labels = ['気にならない', '少し気になる', '気になる', 'とても気になる'];
+      questions.push({ id: uid('q'), type: 'scale', text: `${problem || '今のお悩み'}は、どのくらい気になっていますか？`, choices: scoredChoices(labels, lead) });
+    } else {
+      // 単一選択（言い回しをローテーション）
+      const text = qTemplates[qi % qTemplates.length];
+      const labels = scaleSets[qi % scaleSets.length];
+      questions.push({ id: uid('q'), type: 'single', text, choices: scoredChoices(labels, lead) });
+    }
   }
 
   const facts = `${n}問・約${Math.max(1, Math.round(n * 0.3))}分`;
