@@ -227,6 +227,40 @@ textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
 .q-text { font-size: 20px; font-weight: 800; line-height: 1.45; margin: 6px 0 22px; }
 /* 戻ったとき、前回選んだ回答を分かるように */
 .choice.picked { border-color: var(--brand); background: #eef4ff; }
+.q-hint { color: var(--muted); font-size: 13px; margin: -6px 0 14px; }
+
+/* 複数選択：チェックマーク付き */
+.choice.multi { display: flex; align-items: center; gap: 12px; }
+.choice.multi .chk {
+  flex: none; width: 24px; height: 24px; border-radius: 7px; border: 2px solid var(--line);
+  display: inline-flex; align-items: center; justify-content: center; font-size: 15px; color: #fff; font-weight: 900;
+}
+.choice.multi.picked .chk { background: var(--brand); border-color: var(--brand); }
+
+/* 「次へ進む」ボタン */
+.q-next { margin: 8px 0 4px; }
+.q-next:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+
+/* 画像選択：2列グリッド */
+.img-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.img-choice {
+  border: 2px solid var(--line); border-radius: 14px; background: #fff; padding: 0; overflow: hidden;
+  cursor: pointer; display: flex; flex-direction: column; text-align: center; transition: .12s;
+}
+.img-choice:hover { border-color: var(--brand); }
+.img-choice.picked { border-color: var(--brand); background: #eef4ff; }
+.img-choice img { width: 100%; height: 120px; object-fit: cover; display: block; background: #f3f6fc; }
+.img-choice .img-ph { width: 100%; height: 120px; display: flex; align-items: center; justify-content: center; font-size: 34px; background: #f3f6fc; }
+.img-choice span { padding: 10px 8px; font-weight: 700; font-size: 14px; }
+
+/* スライダー */
+.scale-wrap { padding: 8px 4px 4px; }
+.scale-wrap input[type=range] { width: 100%; accent-color: var(--brand); height: 28px; }
+.scale-label {
+  text-align: center; font-size: 18px; font-weight: 800; color: var(--brand-ink);
+  margin: 10px 0 4px; min-height: 26px;
+}
+.scale-ends { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
 .choice {
   display: block; width: 100%; text-align: left; background: #fff;
   border: 2px solid var(--line); border-radius: 14px; padding: 16px 18px;

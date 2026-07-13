@@ -57,11 +57,13 @@ function emptyResultType(key) {
 }
 function emptyChoice(keys) {
   const scores = {}; keys.forEach(k => scores[k] = 0);
-  return { id: uid('c'), text: '', scores };
+  return { id: uid('c'), text: '', image: '', scores };
 }
+// type: 'single'(単一選択) | 'multi'(複数選択) | 'scale'(スライダー) | 'image'(画像選択)
 function emptyQuestion(keys) {
-  return { id: uid('q'), text: '', choices: [emptyChoice(keys), emptyChoice(keys)] };
+  return { id: uid('q'), text: '', type: 'single', choices: [emptyChoice(keys), emptyChoice(keys)] };
 }
+const QTYPE_LABELS = { single: '単一選択', multi: '複数選択', scale: 'スライダー', image: '画像選択' };
 function newDiagnosis() {
   const keys = ['A', 'B', 'C', 'D'];
   return {
@@ -270,11 +272,15 @@ async function seedIfEmpty() {
 function scoreDiagnosis(diag, answers) {
   const totals = {}; diag.keys.forEach(k => totals[k] = 0);
   diag.questions.forEach(q => {
-    const ci = answers[q.id];
-    if (ci == null) return;
-    const choice = q.choices[ci];
-    if (!choice) return;
-    diag.keys.forEach(k => { totals[k] += Number(choice.scores[k] || 0); });
+    const a = answers[q.id];
+    if (a == null) return;
+    // 単一/画像/スライダーは数値、複数選択は配列。選ばれた全選択肢のスコアを合計。
+    const sel = Array.isArray(a) ? a : [a];
+    sel.forEach(ci => {
+      const choice = q.choices[ci];
+      if (!choice) return;
+      diag.keys.forEach(k => { totals[k] += Number(choice.scores[k] || 0); });
+    });
   });
   let best = null;
   diag.resultTypes.forEach(rt => {
@@ -465,22 +471,37 @@ function tabQuestions(d) {
 }
 
 function questionBlock(d, q, qi) {
+  const type = q.type || 'single';
+  const isImage = type === 'image';
   const head = `<div class="score-row" style="margin-bottom:6px">
-      <div class="score-head" style="text-align:left">選択肢テキスト</div>
+      <div class="score-head" style="text-align:left">${isImage ? '選択肢テキスト（＋下に画像URL）' : (type === 'scale' ? 'スライダーの目盛りラベル' : '選択肢テキスト')}</div>
       ${d.keys.map(k => `<div class="score-head">${k}</div>`).join('')}
       <div></div></div>`;
+  const typeHints = {
+    single: 'タップで1つ選び、次の質問へ自動で進みます。',
+    multi: '「当てはまるものを全て」複数選べます。選んだ全ての点数が加算されます。',
+    scale: '選択肢を目盛りとしたスライダーで表示します（左＝上、右＝下の順）。',
+    image: '各選択肢に画像URLを設定すると、画像カードで選べます。'
+  };
   return `<div class="section-block" data-q="${q.id}">
     <div class="sb-head">
       <span class="qnum">${qi+1}</span>
       <input type="text" data-qfield="text" data-q="${q.id}" value="${esc(q.text)}" placeholder="質問文を入力">
+      <select data-qtype data-q="${q.id}" style="width:150px">
+        ${Object.entries(QTYPE_LABELS).map(([v, l]) => `<option value="${v}" ${type===v?'selected':''}>${l}</option>`).join('')}
+      </select>
       <button class="btn ghost sm" data-action="del-question" data-q="${q.id}" title="質問を削除">✕</button>
     </div>
+    <div class="subtle" style="margin:-4px 0 12px">${typeHints[type]}</div>
     ${head}
     ${q.choices.map((c, ci) => `
-      <div class="score-row" style="margin-bottom:8px">
-        <input type="text" data-cfield="text" data-q="${q.id}" data-c="${c.id}" value="${esc(c.text)}" placeholder="選択肢">
-        ${d.keys.map(k => `<div class="sc"><input type="number" min="0" data-score="${k}" data-q="${q.id}" data-c="${c.id}" value="${Number(c.scores[k]||0)}"></div>`).join('')}
-        <button class="btn ghost sm" data-action="del-choice" data-q="${q.id}" data-c="${c.id}">✕</button>
+      <div style="margin-bottom:8px">
+        <div class="score-row">
+          <input type="text" data-cfield="text" data-q="${q.id}" data-c="${c.id}" value="${esc(c.text)}" placeholder="選択肢">
+          ${d.keys.map(k => `<div class="sc"><input type="number" min="0" data-score="${k}" data-q="${q.id}" data-c="${c.id}" value="${Number(c.scores[k]||0)}"></div>`).join('')}
+          <button class="btn ghost sm" data-action="del-choice" data-q="${q.id}" data-c="${c.id}">✕</button>
+        </div>
+        ${isImage ? `<input type="url" data-cfield="image" data-q="${q.id}" data-c="${c.id}" value="${esc(c.image||'')}" placeholder="画像URL（https://...）" style="margin-top:4px">` : ''}
       </div>`).join('')}
     <button class="btn sm" data-action="add-choice" data-q="${q.id}">＋ 選択肢</button>
   </div>`;
@@ -838,7 +859,41 @@ function paintPubQuestion(root) {
   const total = d.questions.length;
   const pct = Math.round((qi) / total * 100);
   const animClass = st.dir === 'back' ? 'q-card q-enter-back' : 'q-card q-enter';
-  const answered = st.answers[q.id]; // 戻ったときに前回の回答を強調
+  const type = q.type || 'single';
+  const stored = st.answers[q.id];
+  const selArr = Array.isArray(stored) ? stored.slice() : [];
+  const curIdx = (typeof stored === 'number') ? stored : Math.floor((q.choices.length - 1) / 2);
+  const isSel = (ci) => stored === ci;
+
+  // 回答エリアの中身を設問タイプ別に生成
+  let body = '', needsNext = false;
+  if (type === 'image') {
+    body = `<div id="choices" class="img-grid">
+      ${q.choices.map((c, ci) => `<button class="img-choice${isSel(ci) ? ' picked' : ''}" data-ci="${ci}">
+        ${c.image ? `<img src="${esc(c.image)}" alt="" loading="lazy">` : '<div class="img-ph">🖼️</div>'}
+        <span>${esc(c.text)}</span></button>`).join('')}
+    </div>`;
+  } else if (type === 'multi') {
+    needsNext = true;
+    body = `<div class="q-hint">当てはまるものを全て選んでください（複数可）</div>
+      <div id="choices">
+      ${q.choices.map((c, ci) => `<button class="choice multi${selArr.includes(ci) ? ' picked' : ''}" data-ci="${ci}">
+        <span class="chk">${selArr.includes(ci) ? '✓' : ''}</span>${esc(c.text)}</button>`).join('')}
+      </div>`;
+  } else if (type === 'scale') {
+    needsNext = true;
+    const n = q.choices.length;
+    body = `<div class="scale-wrap">
+        <input type="range" id="scale" min="0" max="${n - 1}" step="1" value="${curIdx}">
+        <div class="scale-label" id="scale-label">${esc(q.choices[curIdx] ? q.choices[curIdx].text : '')}</div>
+        <div class="scale-ends"><span>${esc(q.choices[0] ? q.choices[0].text : '')}</span><span>${esc(q.choices[n - 1] ? q.choices[n - 1].text : '')}</span></div>
+      </div>`;
+  } else { // single
+    body = `<div id="choices">
+      ${q.choices.map((c, ci) => `<button class="choice${isSel(ci) ? ' picked' : ''}" data-ci="${ci}">${esc(c.text)}</button>`).join('')}
+    </div>`;
+  }
+
   root.innerHTML = `
     <div class="pub"><div class="pub-inner">
       <div class="q-head">
@@ -848,22 +903,49 @@ function paintPubQuestion(root) {
       <div class="${animClass}" data-qkey="${qi}">
         <div class="q-badge">Q${qi + 1}</div>
         <div class="q-text">${esc(q.text)}</div>
-        <div id="choices">
-          ${q.choices.map((c, ci) => `<button class="choice${answered === ci ? ' picked' : ''}" data-ci="${ci}">${esc(c.text)}</button>`).join('')}
-        </div>
+        ${body}
       </div>
+      ${needsNext ? `<button class="cta-big q-next" id="pub-next"${type === 'multi' && selArr.length === 0 ? ' disabled' : ''}>次へ進む</button>` : ''}
       ${qi > 0 ? `<button class="btn ghost block q-back" id="pub-back">← 前の質問に戻る</button>` : ''}
     </div></div>`;
   if (window.scrollTo) window.scrollTo(0, 0);
 
-  $('#choices').querySelectorAll('.choice').forEach(btn => {
-    btn.addEventListener('click', () => {
-      st.answers[q.id] = Number(btn.dataset.ci);
-      st.dir = 'fwd';
-      if (qi + 1 < total) { st.qIndex++; paintPublic(root); }
-      else { finishDiagnosis(root); }
+  const advance = (val) => {
+    st.answers[q.id] = val; st.dir = 'fwd';
+    if (qi + 1 < total) { st.qIndex++; paintPublic(root); }
+    else { finishDiagnosis(root); }
+  };
+
+  if (type === 'single' || type === 'image') {
+    $('#choices').querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => advance(Number(btn.dataset.ci)));
     });
-  });
+  } else if (type === 'multi') {
+    const nextBtn = $('#pub-next');
+    $('#choices').querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const ci = Number(btn.dataset.ci);
+        const i = selArr.indexOf(ci);
+        if (i >= 0) selArr.splice(i, 1); else selArr.push(ci);
+        btn.classList.toggle('picked');
+        btn.querySelector('.chk').textContent = selArr.includes(ci) ? '✓' : '';
+        st.answers[q.id] = selArr.slice();
+        if (nextBtn) nextBtn.disabled = selArr.length === 0;
+      });
+    });
+    if (nextBtn) nextBtn.addEventListener('click', () => { if (selArr.length) advance(selArr.slice()); });
+  } else if (type === 'scale') {
+    const slider = $('#scale'); const label = $('#scale-label');
+    st.answers[q.id] = Number(slider.value); // 既定値も確定
+    slider.addEventListener('input', () => {
+      const v = Number(slider.value);
+      label.textContent = q.choices[v] ? q.choices[v].text : '';
+      st.answers[q.id] = v;
+    });
+    const nextBtn = $('#pub-next');
+    if (nextBtn) nextBtn.addEventListener('click', () => advance(Number(slider.value)));
+  }
+
   const back = $('#pub-back');
   if (back) back.addEventListener('click', () => { st.dir = 'back'; st.qIndex--; paintPublic(root); });
 }
@@ -1011,6 +1093,15 @@ document.addEventListener('input', (e) => {
   const t = e.target;
   if (t.dataset && (t.dataset.field || t.dataset.qfield || t.dataset.cfield || t.dataset.score || t.dataset.rfield)) {
     commitField(t);
+  }
+});
+// 設問タイプの変更 → 保存して再描画（画像URL欄などの表示切替のため）
+document.addEventListener('change', (e) => {
+  if (!editState) return;
+  const t = e.target;
+  if (t.dataset && t.dataset.qtype != null) {
+    const q = editState.questions.find(x => x.id === t.dataset.q);
+    if (q) { q.type = t.value; paintTab(); }
   }
 });
 
