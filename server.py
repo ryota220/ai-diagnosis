@@ -27,14 +27,16 @@ UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")  # アップロード画像の保
 # 待ち受けポート。Render等は PORT 環境変数で指定される。
 PORT = int(os.environ.get("PORT", "4173"))
 
-MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8MB
+MAX_UPLOAD_BYTES = 30 * 1024 * 1024  # 30MB（短い動画も許可）
 MIME_EXT = {
     "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg",
-    "image/gif": "gif", "image/webp": "webp", "video/mp4": "mp4",
+    "image/gif": "gif", "image/webp": "webp",
+    "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
 }
 EXT_CTYPE = {
     "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-    "gif": "image/gif", "webp": "image/webp", "mp4": "video/mp4",
+    "gif": "image/gif", "webp": "image/webp",
+    "mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime",
 }
 
 _lock = threading.Lock()

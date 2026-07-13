@@ -14,6 +14,7 @@ const $ = (sel, el = document) => el.querySelector(sel);
 const nowISO = () => new Date().toISOString();
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // スラッグはURL共有で壊れないようASCIIのみ。日本語タイトル等は短いランダムIDにフォールバック。
+const isVideo = (url) => /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url || '');
 const slugify = (s) => {
   const base = (s || '').toString().trim().toLowerCase()
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
@@ -566,10 +567,10 @@ function resultBlock(rt) {
       ${f('ctaText','予約CTAボタン文言','例：栄養状態チェックを予約する')}
     </div>
     ${f('ctaUrl','予約URL（空欄なら基本予約URLを使用）','https://example.com/reserve')}
-    <div class="field"><label>結果ページに表示する画像 <span class="hint">クーポン・ビフォーアフター・案内画像など（任意・8MBまで）</span></label>
-      ${rt.image ? `<div class="rt-img-preview"><img src="${esc(rt.image)}" alt=""><button class="btn sm danger" data-action="rt-img-remove" data-k="${rt.key}">画像を削除</button></div>` : ''}
-      <label class="btn sm" style="cursor:pointer">📤 画像をアップロード
-        <input type="file" accept="image/*" data-imgupload data-k="${rt.key}" style="display:none">
+    <div class="field"><label>結果ページに表示する画像・動画 <span class="hint">クーポン・ビフォーアフター・院長メッセージ動画など（任意・30MBまで）</span></label>
+      ${rt.image ? `<div class="rt-img-preview">${isVideo(rt.image) ? `<video src="${esc(rt.image)}" controls muted playsinline></video>` : `<img src="${esc(rt.image)}" alt="">`}<button class="btn sm danger" data-action="rt-img-remove" data-k="${rt.key}">削除</button></div>` : ''}
+      <label class="btn sm" style="cursor:pointer">📤 画像・動画をアップロード
+        <input type="file" accept="image/*,video/mp4,video/webm,video/quicktime" data-imgupload data-k="${rt.key}" style="display:none">
       </label>
     </div>
   </div>`;
@@ -1014,7 +1015,7 @@ function paintPubResult(root) {
         <div class="type">${esc(rt.name)}</div>
       </div>
       ${rt.summary ? `<p class="pub-lead" style="text-align:center">${esc(rt.summary)}</p>` : ''}
-      ${rt.image ? `<div class="res-image"><img src="${esc(rt.image)}" alt="" loading="lazy"></div>` : ''}
+      ${rt.image ? `<div class="res-image">${isVideo(rt.image) ? `<video src="${esc(rt.image)}" controls playsinline preload="metadata"></video>` : `<img src="${esc(rt.image)}" alt="" loading="lazy">`}</div>` : ''}
 
       <div class="score-bars">
         ${d.resultTypes.map(t => {
@@ -1149,7 +1150,7 @@ document.addEventListener('change', (e) => {
     if (q) { q.type = t.value; paintTab(); }
   } else if (t.dataset && t.dataset.imgupload != null && t.files && t.files[0]) {
     const file = t.files[0];
-    if (file.size > 8 * 1024 * 1024) { toast('画像は8MBまでです'); t.value = ''; return; }
+    if (file.size > 30 * 1024 * 1024) { toast('ファイルは30MBまでです'); t.value = ''; return; }
     const rt = editState.resultTypes.find(x => x.key === t.dataset.k);
     if (!rt) return;
     toast('画像をアップロード中…');

@@ -280,9 +280,9 @@ textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 .res-image { margin: 18px 0; }
-.res-image img { width: 100%; border-radius: 14px; display: block; }
+.res-image img, .res-image video { width: 100%; border-radius: 14px; display: block; background: #000; }
 .rt-img-preview { margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
-.rt-img-preview img { max-width: 220px; max-height: 140px; border-radius: 10px; border: 1px solid var(--line); }
+.rt-img-preview img, .rt-img-preview video { max-width: 260px; max-height: 160px; border-radius: 10px; border: 1px solid var(--line); background: #000; }
 .res-section { margin: 22px 0; }
 .res-section h3 { font-size: 16px; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
 .res-section h3 .ico {
