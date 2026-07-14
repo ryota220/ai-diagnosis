@@ -279,6 +279,20 @@ textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
   letter-spacing: -.01em; background: linear-gradient(135deg, var(--brand), #7c3aed);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
+/* リッチ編集（文字装飾） */
+.rt-toolbar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 6px; }
+.rt-tool { border: 1px solid var(--line); background: #fff; border-radius: 7px; cursor: pointer;
+  height: 30px; min-width: 30px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; padding: 0 7px; line-height: 1; }
+.rt-tool:hover { background: #f1f3f7; }
+.rt-tool.sw { font-weight: 900; }
+.rt-tool.sw.mk { width: 28px; }
+.tb-sep { width: 1px; height: 20px; background: var(--line); margin: 0 3px; }
+.rich-edit { border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; min-height: 72px;
+  font-size: 14px; line-height: 1.6; background: #fff; }
+.rich-edit:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(47,109,246,.15); }
+.res-section .rich mark { padding: 0 3px; border-radius: 3px; }
+
 .res-image { margin: 18px 0; }
 .res-image img, .res-image video { width: 100%; border-radius: 14px; display: block; background: #000; }
 .rt-img-preview { margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
@@ -320,3 +334,53 @@ textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
 
 .flash-note { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; padding: 10px 14px; border-radius: 10px; font-size: 13px; margin-bottom: 16px; }
 .pill { display:inline-block; background:#f1f3f7; border-radius:999px; padding:2px 10px; font-size:12px; color:var(--muted); font-weight:600;}
+
+/* ============================================================
+   スマホ対応（管理画面）— 横ブレ（横スクロール）解消
+   ============================================================ */
+input, select, textarea { max-width: 100%; }
+
+@media (max-width: 640px) {
+  html, body { overflow-x: hidden; }
+  .wrap { padding: 16px 12px 64px; }
+
+  /* ヘッダー */
+  .app-header { padding: 10px 12px; gap: 8px; }
+  .app-header .who { display: none; }
+  .app-header nav { margin-left: 0; }
+  .app-header nav a { padding: 6px 8px; font-size: 13px; }
+  .app-header .logo span:last-child { font-size: 15px; }
+
+  /* ページ見出し・ボタン群は折り返す */
+  .page-title { flex-wrap: wrap; }
+  .page-title h1 { font-size: 19px; }
+
+  /* 診断一覧カード：1カラム、操作は横並びで折り返し */
+  .dcard { grid-template-columns: 1fr; }
+  .dcard .actions { flex-direction: row; flex-wrap: wrap; min-width: 0; }
+  .dcard .actions .btn { flex: 1 1 45%; justify-content: center; }
+  .kpis { gap: 12px; }
+  .kpi { min-width: 56px; }
+  .url-row { flex-wrap: wrap; }
+  .url-row input { min-width: 0; flex: 1 1 100%; }
+
+  /* 質問・スコア欄：はみ出さないよう列を圧縮 */
+  .score-row { grid-template-columns: minmax(0, 1fr) repeat(4, 38px) 26px; gap: 5px; }
+  .score-row input { min-width: 0; }
+  .score-row .sc input { padding: 6px 2px; font-size: 13px; }
+  .score-head { font-size: 10px; }
+
+  /* 設問ヘッダー：質問文とタイプ選択を縦に */
+  .section-block .sb-head { flex-wrap: wrap; }
+  .sb-head input[data-qfield] { flex: 1 1 100%; }
+  .sb-head select[data-qtype] { width: 100% !important; }
+
+  /* タブは横スクロール可に */
+  .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tabs button { white-space: nowrap; }
+
+  /* 2列/3列は1列に */
+  .two-col, .three-col { grid-template-columns: 1fr; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .bar-list .row .nm { width: 110px; }
+}

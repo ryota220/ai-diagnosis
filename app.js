@@ -15,6 +15,41 @@ const nowISO = () => new Date().toISOString();
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // スラッグはURL共有で壊れないようASCIIのみ。日本語タイトル等は短いランダムIDにフォールバック。
 const isVideo = (url) => /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url || '');
+
+/* ---------------- リッチテキスト（結果詳細の文字装飾） ---------------- */
+const looksLikeHtml = (v) => /<[a-z][\s\S]*>/i.test(v || '');
+// 装飾HTMLを安全なタグ・スタイルだけに絞る（自院の入力前提の軽量サニタイズ）
+function sanitizeHtml(html) {
+  const allowTags = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'SPAN', 'MARK', 'BR', 'DIV', 'P', 'FONT']);
+  const safeStyle = (s) => (s || '').split(';').map(x => x.trim()).filter(d => {
+    const p = d.split(':')[0].trim().toLowerCase();
+    return ['color', 'background-color', 'background', 'font-weight', 'text-decoration'].includes(p) && !/url\(|expression|javascript:/i.test(d);
+  }).join('; ');
+  const tpl = document.createElement('template'); tpl.innerHTML = html || '';
+  const walk = (node) => {
+    [...node.childNodes].forEach(n => {
+      if (n.nodeType === 1) {
+        if (!allowTags.has(n.tagName)) { // 許可外タグは中身だけ残して除去
+          const parent = n.parentNode;
+          while (n.firstChild) parent.insertBefore(n.firstChild, n);
+          parent.removeChild(n); return;
+        }
+        [...n.attributes].forEach(a => {
+          if (a.name === 'style') { const s = safeStyle(a.value); if (s) n.setAttribute('style', s); else n.removeAttribute('style'); }
+          else if (a.name === 'color' && n.tagName === 'FONT') { /* keep */ }
+          else n.removeAttribute(a.name);
+        });
+        walk(n);
+      }
+    });
+  };
+  walk(tpl.content);
+  return tpl.innerHTML;
+}
+// 保存済みの値を表示用HTMLに（旧データ＝プレーンテキストは改行を<br>に）
+const renderRich = (v) => looksLikeHtml(v) ? sanitizeHtml(v) : esc(v).replace(/\n/g, '<br>');
+const richInit = (v) => looksLikeHtml(v) ? v : esc(v).replace(/\n/g, '<br>');
+
 const slugify = (s) => {
   const base = (s || '').toString().trim().toLowerCase()
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
@@ -545,6 +580,22 @@ function tabResults(d) {
   return `<div class="flash-note">結果ページの本文と、<b>結果タイプ別の予約CTA</b>を設定します。同点時は優先順位（数字が小さいほど優先）で決まります。</div>
   ${d.resultTypes.map(rt => resultBlock(rt)).join('')}`;
 }
+const RICH_COLORS = ['#dc2626', '#2f6df6', '#16a34a', '#d97706', '#111827'];
+const RICH_MARKS = ['#fff3ba', '#ffd1d1', '#d1f0ff', '#e5d1ff'];
+// 文字装飾つき編集欄（太字・文字色・マーカー）
+function richField(rt, field, label) {
+  return `<div class="field rich-wrap">
+    <label>${label}</label>
+    <div class="rt-toolbar">
+      <button type="button" class="rt-tool tb" data-cmd="bold" title="太字"><b>B</b></button>
+      ${RICH_COLORS.map(c => `<button type="button" class="rt-tool sw" data-cmd="foreColor" data-val="${c}" title="文字色" style="color:${c}">A</button>`).join('')}
+      <span class="tb-sep"></span>
+      ${RICH_MARKS.map(c => `<button type="button" class="rt-tool sw mk" data-cmd="hiliteColor" data-val="${c}" title="マーカー" style="background:${c}"></button>`).join('')}
+      <button type="button" class="rt-tool tb" data-cmd="removeFormat" title="装飾をクリア">✕</button>
+    </div>
+    <div class="rich-edit" contenteditable="true" data-rfield="${field}" data-k="${rt.key}">${richInit(rt[field])}</div>
+  </div>`;
+}
 function resultBlock(rt) {
   const f = (field, label, ph, ta) => ta
     ? `<div class="field"><label>${label}</label><textarea data-rfield="${field}" data-k="${rt.key}" placeholder="${ph}">${esc(rt[field]||'')}</textarea></div>`
@@ -557,11 +608,12 @@ function resultBlock(rt) {
         <input type="number" min="1" data-rfield="priority" data-k="${rt.key}" value="${Number(rt.priority||1)}"></div>
     </div>
     ${f('summary','一言サマリー','このタイプの要約')}
-    ${f('description','① このタイプの特徴 / なぜ改善しなかったのか','特徴の説明', true)}
-    ${f('mistake','② よくある間違い','例：さらに食事を減らそうとすること', true)}
-    ${f('risk','③ このまま放置するとどうなるか','例：〜の可能性があります', true)}
-    ${f('solution','④ 本来必要な改善方法','例：まず〜が必要です', true)}
-    ${f('service','⑤ 当院でできること','例：当院では〜', true)}
+    <div class="flash-note" style="margin:4px 0 14px">下の詳細は<b>文字を選択してツールバー</b>で装飾できます（太字・文字色・マーカー）。</div>
+    ${richField(rt,'description','① このタイプの特徴 / なぜ改善しなかったのか')}
+    ${richField(rt,'mistake','② よくある間違い')}
+    ${richField(rt,'risk','③ このまま放置するとどうなるか')}
+    ${richField(rt,'solution','④ 本来必要な改善方法')}
+    ${richField(rt,'service','⑤ 当院でできること')}
     <div class="two-col">
       ${f('recommendedMenu','おすすめ予約メニュー','例：栄養状態チェック付きカウンセリング')}
       ${f('ctaText','予約CTAボタン文言','例：栄養状態チェックを予約する')}
@@ -1006,7 +1058,7 @@ function paintPubResult(root) {
   const ctaUrl = rt.ctaUrl || d.reserveUrl || '#';
   const maxTotal = Math.max(1, ...Object.values(totals));
   const section = (icon, title, text, cls = '') => text ? `
-    <div class="res-section ${cls}"><h3><span class="ico">${icon}</span>${title}</h3><p>${esc(text)}</p></div>` : '';
+    <div class="res-section ${cls}"><h3><span class="ico">${icon}</span>${title}</h3><div class="rich">${renderRich(text)}</div></div>` : '';
 
   root.innerHTML = `
     <div class="pub"><div class="pub-inner">
@@ -1053,6 +1105,24 @@ function paintPubResult(root) {
     pubState.stage = 'top'; pubState.qIndex = 0; pubState.answers = {}; pubState.started = false; pubState.result = null;
     paintPublic(root);
   });
+}
+
+/* ---------------- リッチ編集：ツールバー ---------------- */
+// ツールバー押下で選択が外れないようにする
+document.addEventListener('mousedown', (e) => { if (e.target.closest('.rt-tool')) e.preventDefault(); });
+document.addEventListener('click', (e) => {
+  const tool = e.target.closest('.rt-tool');
+  if (!tool) return;
+  const cmd = tool.dataset.cmd, val = tool.dataset.val || null;
+  try { document.execCommand('styleWithCSS', false, true); } catch (_) {}
+  document.execCommand(cmd, false, val);
+  const ed = tool.closest('.rich-wrap').querySelector('.rich-edit');
+  if (ed) commitRich(ed);
+});
+function commitRich(ed) {
+  if (!editState) return;
+  const rt = editState.resultTypes.find(x => x.key === ed.dataset.k);
+  if (rt) rt[ed.dataset.rfield] = sanitizeHtml(ed.innerHTML);
 }
 
 /* ============================================================
@@ -1137,6 +1207,7 @@ document.addEventListener('click', (e) => {
 document.addEventListener('input', (e) => {
   if (!editState) return;
   const t = e.target;
+  if (t.classList && t.classList.contains('rich-edit')) { commitRich(t); return; }
   if (t.dataset && (t.dataset.field || t.dataset.qfield || t.dataset.cfield || t.dataset.score || t.dataset.rfield)) {
     commitField(t);
   }
