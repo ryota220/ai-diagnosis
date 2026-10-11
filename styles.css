@@ -146,6 +146,8 @@ textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
   display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px;
 }
 .muted-divider { height: 1px; background: var(--line); margin: 14px 0; border: 0; }
+.check-label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.check-label input { width: 18px; height: 18px; margin: 0; flex: none; }
 
 .toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
@@ -184,6 +186,34 @@ textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
 .pub-inner { padding: 22px 20px 40px; }
 .pub-banner { display: block; }
 .pub-banner img { width: 100%; height: auto; display: block; }
+.pub-title-img { margin: 4px 0 14px; }
+.pub-title-img img { width: 100%; height: auto; display: block; }
+
+/* テーマ色（診断ごと）：--brand を差し替え、青前提の固定色も合わせる */
+.pub.themed {
+  --brand-ink: color-mix(in srgb, var(--brand) 80%, #000);
+  --accent: var(--brand);
+  --tint: color-mix(in srgb, var(--brand) 10%, #fff);
+}
+.pub.themed .cta-big, .pub.themed .cta-big.accent { box-shadow: 0 6px 18px color-mix(in srgb, var(--brand) 35%, transparent); }
+.pub.themed .progress > i { background: var(--brand); }
+.pub.themed .q-badge { background: var(--tint); }
+.pub.themed .choice.picked, .pub.themed .img-choice.picked { background: var(--tint); }
+.pub.themed .choice:hover { background: var(--tint); }
+.pub.themed .pub-fact { background: var(--tint); }
+.pub.themed .res-badge .type { background: none; -webkit-text-fill-color: var(--brand-ink); }
+
+/* 丸ボタン型の選択肢：枠線のみ → 選ぶと塗りつぶし */
+.pub.choice-pill .choice {
+  text-align: center; border-radius: 999px; border-color: var(--brand); color: var(--ink);
+  font-weight: 700; letter-spacing: .08em; padding: 15px 18px; background: #fff;
+}
+.pub.choice-pill .choice:hover { background: #fff; }
+.pub.choice-pill .choice.picked { background: var(--brand); border-color: var(--brand); color: #fff; }
+.pub.choice-pill .choice.multi { justify-content: center; }
+.pub.choice-pill .choice.multi.picked .chk { border-color: #fff; }
+.pub.choice-pill .q-next { border-radius: 999px; }
+.pub.choice-pill .q-next:disabled { background: #d1d5db; color: #fff; opacity: 1; }
 .pub-hero { text-align: center; padding-top: 12px; }
 .pub-hero .eyebrow { color: var(--brand-ink); font-weight: 700; font-size: 13px; letter-spacing: .02em; }
 .pub-hero h1 { font-size: 25px; line-height: 1.35; margin: 8px 0 14px; letter-spacing: -.01em; }

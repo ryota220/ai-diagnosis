@@ -135,7 +135,7 @@ function newDiagnosis() {
   return {
     id: uid('d'), title: '', adminTitle: '', description: '', slug: '', status: 'draft',
     topCopy: '', lineMessage: '', leaveMessage: '', sourceDefault: 'line', reserveUrl: '', gtmId: '',
-    bannerImage: '', bannerLink: '',
+    bannerImage: '', bannerLink: '', titleImage: '', themeColor: '', choiceStyle: 'standard', startInline: false,
     keys, resultTypes: keys.map(emptyResultType),
     questions: [emptyQuestion(keys)],
     createdAt: nowISO(), updatedAt: nowISO()
@@ -541,6 +541,15 @@ function paintTab() {
   else if (editTab === 'publish') body.innerHTML = tabPublish(d);
 }
 
+// 診断全体に付ける画像（バナー・タイトル画像）のアップロード欄
+function diagImageField(d, field, label, hint, name) {
+  return `<div class="field"><label>${label} <span class="hint">${hint}</span></label>
+      ${d[field] ? `<div class="rt-img-preview"><img src="${esc(d[field])}" alt=""><button class="btn sm danger" data-action="diag-img-remove" data-f="${field}">削除</button></div>` : ''}
+      <label class="btn sm" style="cursor:pointer">📤 ${name}をアップロード
+        <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-diagupload="${field}" style="display:none">
+      </label></div>`;
+}
+
 function tabBasic(d) {
   return `<div class="card pad">
     <div class="field"><label>管理用タイトル <span class="hint">🔒 内部用・受診者には表示されません（一覧での識別に使用）</span></label>
@@ -552,13 +561,27 @@ function tabBasic(d) {
       <textarea data-field="description" placeholder="例：あなたがなぜ痩せにくいのかを7問でチェックします。">${esc(d.description)}</textarea></div>
     <div class="field"><label>診断トップページ文章 <span class="hint">受診者が最初に見る導入文（離脱防止）</span></label>
       <textarea data-field="topCopy" style="min-height:130px">${esc(d.topCopy)}</textarea></div>
-    <div class="field"><label>トップページのバナー画像 <span class="hint">診断トップの一番上に表示（任意・PNG/JPEG/GIF/WebP・30MBまで）</span></label>
-      ${d.bannerImage ? `<div class="rt-img-preview"><img src="${esc(d.bannerImage)}" alt=""><button class="btn sm danger" data-action="banner-remove">削除</button></div>` : ''}
-      <label class="btn sm" style="cursor:pointer">📤 バナー画像をアップロード
-        <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-bannerupload style="display:none">
-      </label></div>
+    ${diagImageField(d, 'bannerImage', 'トップページのバナー画像', '診断トップの一番上に表示（任意・PNG/JPEG/GIF/WebP・30MBまで）', 'バナー画像')}
     <div class="field"><label>バナーのリンク先URL <span class="hint">任意・空欄ならタップしても移動しません</span></label>
       <input type="url" data-field="bannerLink" value="${esc(d.bannerLink||'')}" placeholder="https://example.com/campaign"></div>
+    <hr class="muted-divider">
+    <h4 style="margin:0 0 10px">公開ページのデザイン</h4>
+    <div class="field"><label class="check-label"><input type="checkbox" data-field="startInline" ${d.startInline ? 'checked' : ''}>
+      スタート画面を省略し、バナーのすぐ下に1問目を表示する</label>
+      <p class="subtle" style="margin:6px 0 0">オンにするとトップページ文章は表示されません。最初の回答で「診断開始」として計測します。</p></div>
+    ${diagImageField(d, 'titleImage', '診断タイトル画像', 'タイトル文字の代わりに表示（任意・横長推奨）', 'タイトル画像')}
+    <div class="two-col">
+      <div class="field"><label>テーマ色 <span class="hint">ボタン・進捗バーなどの色</span></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="color" data-field="themeColor" value="${esc(THEME_COLOR_RE.test(d.themeColor||'') ? d.themeColor : '#2f6df6')}" style="width:56px;height:40px;padding:2px">
+          ${d.themeColor ? '<button class="btn sm" data-action="theme-reset">標準色に戻す</button>' : '<span class="subtle">標準色（青）</span>'}
+        </div></div>
+      <div class="field"><label>選択肢ボタンの形</label>
+        <select data-field="choiceStyle">
+          <option value="standard" ${d.choiceStyle !== 'pill' ? 'selected' : ''}>標準（タップで次へ）</option>
+          <option value="pill" ${d.choiceStyle === 'pill' ? 'selected' : ''}>丸ボタン（選んで「次へ」）</option>
+        </select></div>
+    </div>
     <div class="field"><label>離脱確認ポップアップの文言 <span class="hint">回答途中で「戻る」をした時に表示。空欄なら標準文を使用</span></label>
       <textarea data-field="leaveMessage" placeholder="${esc(DEFAULT_LEAVE_MSG)}">${esc(d.leaveMessage||'')}</textarea></div>
     <div class="two-col">
@@ -701,7 +724,7 @@ function tabPublish(d) {
 /* ---- editor event wiring (delegation) ---- */
 function commitField(target) {
   const d = editState; if (!d) return;
-  const val = target.value;
+  const val = target.type === 'checkbox' ? target.checked : target.value;
   if (target.dataset.field) {
     d[target.dataset.field] = val;
     if (target.dataset.field === 'title' && !d._slugTouched && d._fresh) {
@@ -958,27 +981,43 @@ async function viewPublic(root, slug, sub, params) {
 
 function paintPublic(root) {
   const st = pubState; const d = st.diag;
+  if (st.stage === 'top' && d.startInline) { st.stage = 'q'; st.qIndex = 0; } // スタート画面を省略
   if (st.stage === 'top') return paintPubTop(root);
   if (st.stage === 'q') return paintPubQuestion(root);
   if (st.stage === 'result') return paintPubResult(root);
 }
 
+/* ---- 公開ページのデザイン設定（診断ごと） ---- */
+const THEME_COLOR_RE = /^#[0-9a-f]{6}$/i;
+// 公開ページの外枠。テーマ色・ボタンの形をクラスとCSS変数で切り替える
+function pubOpen(d) {
+  const cls = ['pub'];
+  let style = '';
+  if (THEME_COLOR_RE.test(d.themeColor || '')) { cls.push('themed'); style = ` style="--brand:${d.themeColor}"`; }
+  if (d.choiceStyle === 'pill') cls.push('choice-pill');
+  return `<div class="${cls.join(' ')}"${style}>`;
+}
+function bannerHtml(d) {
+  if (!d.bannerImage) return '';
+  const img = `<img src="${esc(d.bannerImage)}" alt="">`;
+  // リンクは http(s) のみ許可（javascript: などは無視して画像だけ表示）
+  const link = /^https?:\/\//i.test(d.bannerLink || '') ? d.bannerLink : '';
+  return link
+    ? `<a class="pub-banner" id="pub-banner" href="${esc(link)}" target="_blank" rel="noopener">${img}</a>`
+    : `<div class="pub-banner">${img}</div>`;
+}
+const titleImgHtml = (d) => d.titleImage ? `<h1 class="pub-title-img"><img src="${esc(d.titleImage)}" alt="${esc(d.title)}"></h1>` : '';
+
 function paintPubTop(root) {
   setLeaveGuard(false); // トップでは確認を出さない
   const d = pubState.diag;
   const minutes = Math.max(1, Math.round(d.questions.length * 0.3));
-  // リンクは http(s) のみ許可（javascript: などは無視して画像だけ表示）
-  const bannerLink = /^https?:\/\//i.test(d.bannerLink || '') ? d.bannerLink : '';
-  const bannerImg = d.bannerImage ? `<img src="${esc(d.bannerImage)}" alt="">` : '';
-  const banner = !bannerImg ? '' : bannerLink
-    ? `<a class="pub-banner" id="pub-banner" href="${esc(bannerLink)}" target="_blank" rel="noopener">${bannerImg}</a>`
-    : `<div class="pub-banner">${bannerImg}</div>`;
   root.innerHTML = `
-    <div class="pub">${banner}<div class="pub-inner">
+    ${pubOpen(d)}${bannerHtml(d)}<div class="pub-inner">
       ${pubState.isPreview ? '<div class="flash-note">プレビュー表示中（計測されません）</div>' : ''}
       <div class="pub-hero">
         <div class="eyebrow">無料診断</div>
-        <h1>${esc(d.title)}</h1>
+        ${titleImgHtml(d) || `<h1>${esc(d.title)}</h1>`}
         <div class="pub-lead">${esc(d.topCopy || d.description)}</div>
       </div>
       <div class="pub-facts">
@@ -990,19 +1029,26 @@ function paintPubTop(root) {
       <div class="pub-note">※ 診断結果は目安です。個人差があります。</div>
     </div></div>`;
   $('#pub-start').addEventListener('click', () => {
-    if (!pubState.started && !pubState.isPreview) {
-      logEvent(pubState.diag.id, 'start', { source: pubState.source });
-      pushDataLayer('diagnosis_start', pubState);
-      pubState.started = true;
-    }
+    markStarted(pubState);
     pubState.stage = 'q'; pubState.qIndex = 0; paintPublic(root);
   });
 }
 
+// 診断開始を1回だけ記録（通常はスタートボタン、スタート画面省略時は最初の回答で呼ぶ）
+function markStarted(st) {
+  if (st.started || st.isPreview) return;
+  logEvent(st.diag.id, 'start', { source: st.source });
+  pushDataLayer('diagnosis_start', st);
+  st.started = true;
+}
+
 function paintPubQuestion(root) {
   const st = pubState; const d = st.diag; const qi = st.qIndex;
-  setLeaveGuard(!st.isPreview); // 回答中のみ確認を出す（プレビューでは出さない）
-  if (!st.isPreview) { leaveMsg = (d.leaveMessage || '').trim() || DEFAULT_LEAVE_MSG; installLeaveTrap(); }
+  // 回答中のみ確認を出す（プレビュー・スタート画面省略時の回答前は出さない）
+  const guard = !st.isPreview && st.started;
+  setLeaveGuard(guard);
+  if (guard) { leaveMsg = (d.leaveMessage || '').trim() || DEFAULT_LEAVE_MSG; installLeaveTrap(); }
+  const pill = d.choiceStyle === 'pill';
   const q = d.questions[qi];
   const total = d.questions.length;
   const pct = Math.round((qi) / total * 100);
@@ -1036,15 +1082,19 @@ function paintPubQuestion(root) {
         <div class="scale-label" id="scale-label">${esc(q.choices[curIdx] ? q.choices[curIdx].text : '')}</div>
         <div class="scale-ends"><span>${esc(q.choices[0] ? q.choices[0].text : '')}</span><span>${esc(q.choices[n - 1] ? q.choices[n - 1].text : '')}</span></div>
       </div>`;
-  } else { // single
+  } else { // single（丸ボタン型では「選ぶ→次へ」の2段階にする）
+    needsNext = pill;
     body = `<div id="choices">
       ${q.choices.map((c, ci) => `<button class="choice${isSel(ci) ? ' picked' : ''}" data-ci="${ci}">${esc(c.text)}</button>`).join('')}
     </div>`;
   }
 
+  const nextDisabled = (type === 'multi' && selArr.length === 0) || (type === 'single' && typeof stored !== 'number');
   root.innerHTML = `
-    <div class="pub"><div class="pub-inner">
-      <div class="q-head">
+    ${pubOpen(d)}${d.startInline ? bannerHtml(d) : ''}<div class="pub-inner">
+      ${st.isPreview && d.startInline && qi === 0 ? '<div class="flash-note">プレビュー表示中（計測されません）</div>' : ''}
+      ${d.startInline ? titleImgHtml(d) : ''}
+      <div class="q-head" id="q-head">
         <div class="progress"><i style="width:${pct}%"></i></div>
         <div class="q-step"><span class="cur">${qi + 1}</span><span class="tot"> / ${total} 問</span></div>
       </div>
@@ -1053,18 +1103,32 @@ function paintPubQuestion(root) {
         <div class="q-text">${esc(q.text)}</div>
         ${body}
       </div>
-      ${needsNext ? `<button class="cta-big q-next" id="pub-next"${type === 'multi' && selArr.length === 0 ? ' disabled' : ''}>次へ進む</button>` : ''}
+      ${needsNext ? `<button class="cta-big q-next" id="pub-next"${nextDisabled ? ' disabled' : ''}>次へ進む</button>` : ''}
       ${qi > 0 ? `<button class="btn ghost block q-back" id="pub-back">← 前の質問に戻る</button>` : ''}
     </div></div>`;
-  if (window.scrollTo) window.scrollTo(0, 0);
+  // スタート画面省略時は、回答を始めたらバナーを飛ばして質問の位置へ
+  if (d.startInline && st.started) $('#q-head').scrollIntoView();
+  else if (window.scrollTo) window.scrollTo(0, 0);
 
   const advance = (val) => {
+    markStarted(st);
     st.answers[q.id] = val; st.dir = 'fwd';
     if (qi + 1 < total) { st.qIndex++; paintPublic(root); }
     else { finishDiagnosis(root); }
   };
 
-  if (type === 'single' || type === 'image') {
+  if (type === 'single' && pill) {
+    const nextBtn = $('#pub-next');
+    let picked = typeof stored === 'number' ? stored : null;
+    $('#choices').querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        picked = Number(btn.dataset.ci);
+        $('#choices').querySelectorAll('button').forEach(b => b.classList.toggle('picked', b === btn));
+        nextBtn.disabled = false;
+      });
+    });
+    nextBtn.addEventListener('click', () => { if (picked !== null) advance(picked); });
+  } else if (type === 'single' || type === 'image') {
     $('#choices').querySelectorAll('button').forEach(btn => {
       btn.addEventListener('click', () => advance(Number(btn.dataset.ci)));
     });
@@ -1118,7 +1182,7 @@ function paintPubResult(root) {
     <div class="res-section ${cls}"><h3><span class="ico">${icon}</span>${title}</h3><div class="rich">${renderRich(text)}</div></div>` : '';
 
   root.innerHTML = `
-    <div class="pub"><div class="pub-inner">
+    ${pubOpen(d)}<div class="pub-inner">
       <div class="res-badge">
         <div class="pre">あなたのタイプは…</div>
         <div class="type">${esc(rt.name)}</div>
@@ -1225,7 +1289,8 @@ document.addEventListener('click', (e) => {
     if (rt) { rt.image = ''; paintTab(); }
     return;
   }
-  if (action === 'banner-remove') { editState.bannerImage = ''; paintTab(); return; }
+  if (action === 'diag-img-remove') { editState[act.dataset.f] = ''; paintTab(); return; }
+  if (action === 'theme-reset') { editState.themeColor = ''; paintTab(); return; }
 
   // list actions
   if (action === 'toggle') {
@@ -1275,6 +1340,7 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   if (!editState) return;
   const t = e.target;
+  if (t.type === 'checkbox' && t.dataset.field) { commitField(t); return; }
   if (t.dataset && t.dataset.qtype != null) {
     const q = editState.questions.find(x => x.id === t.dataset.q);
     if (q) { q.type = t.value; paintTab(); }
@@ -1292,16 +1358,16 @@ document.addEventListener('change', (e) => {
       } catch (err) { toast('アップロードに失敗しました'); }
     };
     reader.readAsDataURL(file);
-  } else if (t.dataset && t.dataset.bannerupload != null && t.files && t.files[0]) {
+  } else if (t.dataset && t.dataset.diagupload && t.files && t.files[0]) {
     const file = t.files[0];
     if (file.size > 30 * 1024 * 1024) { toast('ファイルは30MBまでです'); t.value = ''; return; }
-    const d = editState;
-    toast('バナーをアップロード中…');
+    const d = editState; const field = t.dataset.diagupload;
+    toast('画像をアップロード中…');
     const reader = new FileReader();
     reader.onload = async () => {
       try {
         const res = await api.upload(reader.result);
-        d.bannerImage = res.url; toast('バナーを追加しました');
+        d[field] = res.url; toast('画像を追加しました');
         if (editState === d && editTab === 'basic') paintTab(); // アップロード中に画面を移動していたら再描画しない
       } catch (err) { toast('アップロードに失敗しました（PNG/JPEG/GIF/WebPのみ）'); t.value = ''; }
     };
