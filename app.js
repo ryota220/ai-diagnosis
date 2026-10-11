@@ -135,6 +135,7 @@ function newDiagnosis() {
   return {
     id: uid('d'), title: '', adminTitle: '', description: '', slug: '', status: 'draft',
     topCopy: '', lineMessage: '', leaveMessage: '', sourceDefault: 'line', reserveUrl: '', gtmId: '',
+    bannerImage: '', bannerLink: '',
     keys, resultTypes: keys.map(emptyResultType),
     questions: [emptyQuestion(keys)],
     createdAt: nowISO(), updatedAt: nowISO()
@@ -551,6 +552,13 @@ function tabBasic(d) {
       <textarea data-field="description" placeholder="例：あなたがなぜ痩せにくいのかを7問でチェックします。">${esc(d.description)}</textarea></div>
     <div class="field"><label>診断トップページ文章 <span class="hint">受診者が最初に見る導入文（離脱防止）</span></label>
       <textarea data-field="topCopy" style="min-height:130px">${esc(d.topCopy)}</textarea></div>
+    <div class="field"><label>トップページのバナー画像 <span class="hint">診断トップの一番上に表示（任意・PNG/JPEG/GIF/WebP・30MBまで）</span></label>
+      ${d.bannerImage ? `<div class="rt-img-preview"><img src="${esc(d.bannerImage)}" alt=""><button class="btn sm danger" data-action="banner-remove">削除</button></div>` : ''}
+      <label class="btn sm" style="cursor:pointer">📤 バナー画像をアップロード
+        <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-bannerupload style="display:none">
+      </label></div>
+    <div class="field"><label>バナーのリンク先URL <span class="hint">任意・空欄ならタップしても移動しません</span></label>
+      <input type="url" data-field="bannerLink" value="${esc(d.bannerLink||'')}" placeholder="https://example.com/campaign"></div>
     <div class="field"><label>離脱確認ポップアップの文言 <span class="hint">回答途中で「戻る」をした時に表示。空欄なら標準文を使用</span></label>
       <textarea data-field="leaveMessage" placeholder="${esc(DEFAULT_LEAVE_MSG)}">${esc(d.leaveMessage||'')}</textarea></div>
     <div class="two-col">
@@ -959,8 +967,14 @@ function paintPubTop(root) {
   setLeaveGuard(false); // トップでは確認を出さない
   const d = pubState.diag;
   const minutes = Math.max(1, Math.round(d.questions.length * 0.3));
+  // リンクは http(s) のみ許可（javascript: などは無視して画像だけ表示）
+  const bannerLink = /^https?:\/\//i.test(d.bannerLink || '') ? d.bannerLink : '';
+  const bannerImg = d.bannerImage ? `<img src="${esc(d.bannerImage)}" alt="">` : '';
+  const banner = !bannerImg ? '' : bannerLink
+    ? `<a class="pub-banner" id="pub-banner" href="${esc(bannerLink)}" target="_blank" rel="noopener">${bannerImg}</a>`
+    : `<div class="pub-banner">${bannerImg}</div>`;
   root.innerHTML = `
-    <div class="pub"><div class="pub-inner">
+    <div class="pub">${banner}<div class="pub-inner">
       ${pubState.isPreview ? '<div class="flash-note">プレビュー表示中（計測されません）</div>' : ''}
       <div class="pub-hero">
         <div class="eyebrow">無料診断</div>
@@ -1211,6 +1225,7 @@ document.addEventListener('click', (e) => {
     if (rt) { rt.image = ''; paintTab(); }
     return;
   }
+  if (action === 'banner-remove') { editState.bannerImage = ''; paintTab(); return; }
 
   // list actions
   if (action === 'toggle') {
@@ -1275,6 +1290,20 @@ document.addEventListener('change', (e) => {
         const res = await api.upload(reader.result);
         rt.image = res.url; toast('画像を追加しました'); paintTab();
       } catch (err) { toast('アップロードに失敗しました'); }
+    };
+    reader.readAsDataURL(file);
+  } else if (t.dataset && t.dataset.bannerupload != null && t.files && t.files[0]) {
+    const file = t.files[0];
+    if (file.size > 30 * 1024 * 1024) { toast('ファイルは30MBまでです'); t.value = ''; return; }
+    const d = editState;
+    toast('バナーをアップロード中…');
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const res = await api.upload(reader.result);
+        d.bannerImage = res.url; toast('バナーを追加しました');
+        if (editState === d && editTab === 'basic') paintTab(); // アップロード中に画面を移動していたら再描画しない
+      } catch (err) { toast('アップロードに失敗しました（PNG/JPEG/GIF/WebPのみ）'); t.value = ''; }
     };
     reader.readAsDataURL(file);
   }

@@ -182,6 +182,8 @@ textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
 /* ---------- Public diagnosis (mobile-first) ---------- */
 .pub { max-width: 480px; margin: 0 auto; min-height: 100vh; background: #fff; }
 .pub-inner { padding: 22px 20px 40px; }
+.pub-banner { display: block; }
+.pub-banner img { width: 100%; height: auto; display: block; }
 .pub-hero { text-align: center; padding-top: 12px; }
 .pub-hero .eyebrow { color: var(--brand-ink); font-weight: 700; font-size: 13px; letter-spacing: .02em; }
 .pub-hero h1 { font-size: 25px; line-height: 1.35; margin: 8px 0 14px; letter-spacing: -.01em; }
