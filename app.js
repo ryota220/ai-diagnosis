@@ -85,6 +85,35 @@ const api = {
 };
 function logEvent(diagnosisId, type, extra = {}) { api.logEvent(diagnosisId, type, extra); }
 
+/* ---------------- GTM（診断ごとのタグ管理） ---------------- */
+const GTM_ID_RE = /^GTM-[A-Z0-9]{4,12}$/;
+const normalizeGtmId = (v) => String(v || '').trim().toUpperCase();
+const loadedGtmIds = new Set();
+// 公開診断ページでのみ呼ぶ（管理画面・プレビューでは読み込まない）
+function loadGtm(id) {
+  if (!GTM_ID_RE.test(id) || loadedGtmIds.has(id)) return;
+  loadedGtmIds.add(id);
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push({ 'gtm.start': Date.now(), event: 'gtm.js' });
+  const s = document.createElement('script');
+  s.async = true;
+  s.src = 'https://www.googletagmanager.com/gtm.js?id=' + encodeURIComponent(id);
+  document.head.appendChild(s);
+}
+// 診断内の行動をdataLayerへ送る（GTM側でMetaピクセル等のトリガーに使う）
+function pushDataLayer(event, st, extra = {}) {
+  if (!st || st.isPreview) return;
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push({
+    event,
+    diagnosis_id: st.diag.id,
+    diagnosis_slug: st.diag.slug,
+    diagnosis_title: st.diag.title,
+    source: st.source,
+    ...extra,
+  });
+}
+
 /* ---------------- factory ---------------- */
 function emptyResultType(key) {
   return {
@@ -105,7 +134,7 @@ function newDiagnosis() {
   const keys = ['A', 'B', 'C', 'D'];
   return {
     id: uid('d'), title: '', adminTitle: '', description: '', slug: '', status: 'draft',
-    topCopy: '', lineMessage: '', leaveMessage: '', sourceDefault: 'line', reserveUrl: '',
+    topCopy: '', lineMessage: '', leaveMessage: '', sourceDefault: 'line', reserveUrl: '', gtmId: '',
     keys, resultTypes: keys.map(emptyResultType),
     questions: [emptyQuestion(keys)],
     createdAt: nowISO(), updatedAt: nowISO()
@@ -640,6 +669,10 @@ function tabPublish(d) {
       </select></div>
     <div class="field"><label>LINE配信用 紹介文</label>
       <textarea data-field="lineMessage" style="min-height:120px" placeholder="LINEで配信する紹介文">${esc(d.lineMessage||'')}</textarea></div>
+    <div class="field"><label>Googleタグマネージャー（GTM）コンテナID</label>
+      <input type="text" data-field="gtmId" value="${esc(d.gtmId||'')}" placeholder="GTM-XXXXXXX" autocomplete="off">
+      <p class="subtle" style="margin:6px 0 0">この診断の公開ページだけでGTMを読み込みます（空欄なら読み込みません）。
+        dataLayerに diagnosis_view / diagnosis_start / diagnosis_complete / reserve_click を送信します。</p></div>
     <hr class="muted-divider">
     <h4 style="margin:0 0 10px">配信用URL</h4>
     <p class="subtle" style="margin-top:0">流入元（source）別にURLを発行できます。クリック計測に使われます。</p>
@@ -684,6 +717,8 @@ function commitField(target) {
 async function saveEditor() {
   const d = editState;
   if (!d.title.trim()) { editTab = 'basic'; paintEditor($('#root')); toast('診断タイトルを入力してください'); return; }
+  d.gtmId = normalizeGtmId(d.gtmId);
+  if (d.gtmId && !GTM_ID_RE.test(d.gtmId)) { editTab = 'publish'; paintEditor($('#root')); toast('GTMのIDは「GTM-XXXXXXX」の形式で入力してください'); return; }
   // スラッグ生成と重複回避はサーバ側で実施
   const isNew = d._fresh === true;
   const payload = JSON.parse(JSON.stringify(d)); delete payload._fresh;
@@ -901,12 +936,15 @@ async function viewPublic(root, slug, sub, params) {
   const source = params.source || diag.sourceDefault || 'direct';
   const isPreview = slug === '__preview__';
 
-  if (!pubState || pubState.diagId !== diag.id) {
+  const isNewVisit = !pubState || pubState.diagId !== diag.id;
+  if (isNewVisit) {
     pubState = { diagId: diag.id, diag, source, isPreview, stage: 'top', qIndex: 0, answers: {}, started: false };
   }
   pubState.diag = diag;
   pubState.source = source;
   pubState.isPreview = isPreview;
+  if (!isPreview) loadGtm(normalizeGtmId(diag.gtmId));
+  if (isNewVisit) pushDataLayer('diagnosis_view', pubState);
   paintPublic(root);
 }
 
@@ -938,7 +976,11 @@ function paintPubTop(root) {
       <div class="pub-note">※ 診断結果は目安です。個人差があります。</div>
     </div></div>`;
   $('#pub-start').addEventListener('click', () => {
-    if (!pubState.started && !pubState.isPreview) { logEvent(pubState.diag.id, 'start', { source: pubState.source }); pubState.started = true; }
+    if (!pubState.started && !pubState.isPreview) {
+      logEvent(pubState.diag.id, 'start', { source: pubState.source });
+      pushDataLayer('diagnosis_start', pubState);
+      pubState.started = true;
+    }
     pubState.stage = 'q'; pubState.qIndex = 0; paintPublic(root);
   });
 }
@@ -1048,6 +1090,7 @@ function finishDiagnosis(root) {
   st.result = { totals, winner };
   st.stage = 'result';
   if (!st.isPreview) logEvent(d.id, 'complete', { source: st.source, resultKey: winner.key });
+  pushDataLayer('diagnosis_complete', st, { result_type: winner.key, result_name: winner.name });
   paintPublic(root);
 }
 
@@ -1099,7 +1142,8 @@ function paintPubResult(root) {
   $('#pub-cta').addEventListener('click', (e) => {
     if (pubState.isPreview) { e.preventDefault(); return; }
     logEvent(d.id, 'cta_click', { source: pubState.source, resultKey: rt.key });
-    if (!ctaUrl || ctaUrl === '#') { e.preventDefault(); toast('予約URLが設定されていません'); }
+    if (!ctaUrl || ctaUrl === '#') { e.preventDefault(); toast('予約URLが設定されていません'); return; }
+    pushDataLayer('reserve_click', pubState, { result_type: rt.key, result_name: rt.name, reserve_url: ctaUrl });
   });
   $('#pub-retry').addEventListener('click', () => {
     pubState.stage = 'top'; pubState.qIndex = 0; pubState.answers = {}; pubState.started = false; pubState.result = null;

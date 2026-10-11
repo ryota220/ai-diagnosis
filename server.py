@@ -84,6 +84,12 @@ def slugify(s):
     return base or ("d-" + uuid.uuid4().hex[:5])
 
 
+def clean_gtm_id(v):
+    # 公開ページでscriptのURLに使うため、GTM-XXXXXXX 形式以外は保存しない
+    v = str(v or "").strip().upper()
+    return v if re.fullmatch(r"GTM-[A-Z0-9]{4,12}", v) else ""
+
+
 def ensure_unique_slug(db, slug, exclude_id=None):
     existing = {d["slug"] for d in db["diagnoses"] if d.get("id") != exclude_id}
     if slug not in existing:
@@ -239,6 +245,7 @@ class Handler(BaseHTTPRequestHandler):
                 d = body or {}
                 d["id"] = d.get("id") or gen_id("d")
                 d["slug"] = ensure_unique_slug(db, slugify(d.get("slug") or d.get("title")), d["id"])
+                d["gtmId"] = clean_gtm_id(d.get("gtmId"))
                 d["createdAt"] = now_iso()
                 d["updatedAt"] = now_iso()
                 db["diagnoses"].insert(0, d)
@@ -297,6 +304,7 @@ class Handler(BaseHTTPRequestHandler):
             d = body or {}
             d["id"] = m.group(1)
             d["slug"] = ensure_unique_slug(db, slugify(d.get("slug") or d.get("title")), d["id"])
+            d["gtmId"] = clean_gtm_id(d.get("gtmId"))
             d["createdAt"] = db["diagnoses"][idx].get("createdAt") or now_iso()
             d["updatedAt"] = now_iso()
             db["diagnoses"][idx] = d
