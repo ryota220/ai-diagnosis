@@ -115,10 +115,13 @@ function pushDataLayer(event, st, extra = {}) {
 }
 
 /* ---------------- factory ---------------- */
+// 結果ページのおすすめ欄の見出し（未設定の診断はこの文言のまま）
+const DEFAULT_MENU_LABEL = 'あなたにおすすめの予約メニュー';
+
 function emptyResultType(key) {
   return {
     key, name: '', priority: TYPE_KEYS.indexOf(key) + 1, summary: '', description: '',
-    mistake: '', risk: '', solution: '', service: '', recommendedMenu: '', ctaText: '予約する', ctaUrl: '', image: ''
+    mistake: '', risk: '', solution: '', service: '', menuLabel: '', recommendedMenu: '', ctaText: '予約する', ctaUrl: '', image: ''
   };
 }
 function emptyChoice(keys) {
@@ -826,8 +829,9 @@ function resultBlock(rt) {
     ${richField(rt,'risk','③ このまま放置するとどうなるか')}
     ${richField(rt,'solution','④ 本来必要な改善方法')}
     ${richField(rt,'service','⑤ 当院でできること')}
+    ${f('menuLabel',`おすすめ欄の見出し <span class="hint">空欄なら「${DEFAULT_MENU_LABEL}」</span>`,'例：あなたへのアドバイス')}
     <div class="two-col">
-      ${f('recommendedMenu','おすすめ予約メニュー','例：栄養状態チェック付きカウンセリング')}
+      ${f('recommendedMenu','おすすめ欄の内容（メニュー名・アドバイスなど）','例：栄養状態チェック付きカウンセリング')}
       ${f('ctaText','予約CTAボタン文言','例：栄養状態チェックを予約する')}
     </div>
     ${f('ctaUrl','予約URL（空欄なら基本予約URLを使用）','https://example.com/reserve')}
@@ -1411,7 +1415,7 @@ function paintPubResult(root) {
 
       ${rt.recommendedMenu ? `
         <div class="res-menu"${edAttr(`rt:${rt.key}:recommendedMenu`)}>
-          <div class="label">あなたにおすすめの予約メニュー</div>
+          <div class="label"${edAttr(`rt:${rt.key}:menuLabel`)}>${esc(rt.menuLabel || DEFAULT_MENU_LABEL)}</div>
           <div class="name">${esc(rt.recommendedMenu)}</div>
         </div>` : ''}
 
