@@ -410,7 +410,7 @@ async function render() {
   const root = $('#root');
   const header = $('#app-header');
   // 公開ページではヘッダーを隠す（受診者向け）
-  const isPublic = parts[0] === 'd';
+  const isPublic = parts[0] === 'd' || parts[0] === 'embed';
   header.style.display = isPublic ? 'none' : 'flex';
   document.body.style.background = isPublic ? '#eef1f6' : 'var(--bg)';
 
@@ -421,6 +421,7 @@ async function render() {
     case 'analytics': return viewAnalytics(root, parts[1]);
     case 'generate': return viewGenerate(root);
     case 'd': return viewPublic(root, parts[1], parts[2], params);
+    case 'embed': return viewEmbed(root);
     default: return viewList(root);
   }
 }
@@ -497,6 +498,8 @@ function cardHtml(d) {
    ============================================================ */
 let editState = null; // 編集中の診断オブジェクト
 let editTab = 'basic';
+let pvScreen = { stage: 'top' }; // 右側プレビューで表示中の画面 { stage: 'top'|'q'|'result', id }
+let pvTimer = null;
 
 async function viewEditor(root, id) {
   if (id) {
@@ -508,27 +511,41 @@ async function viewEditor(root, id) {
     editState = newDiagnosis(); editState._fresh = true;
   }
   if (!editState.keys) editState.keys = ['A', 'B', 'C', 'D'];
+  pvScreen = { stage: 'top' };
   paintEditor(root);
 }
 
 function paintEditor(root) {
   const d = editState;
   root.innerHTML = `
-    <div class="wrap">
+    <div class="wrap wide">
       <div class="page-title">
         <a class="btn ghost" href="#/">← 一覧</a>
         <h1>${d._fresh ? '診断を新規作成' : '診断を編集'}</h1>
         <div class="spacer"></div>
-        <a class="btn" href="#/d/__preview__?source=preview" data-action="preview">▶ プレビュー</a>
+        <div class="view-toggle" id="view-toggle">
+          <button class="active" data-action="view-mode" data-mode="edit">編集</button>
+          <button data-action="view-mode" data-mode="preview">プレビュー</button>
+        </div>
+        <a class="btn" href="#/d/__preview__?source=preview" data-action="preview">▶ 通しで確認</a>
         <button class="btn primary" data-action="save">保存</button>
       </div>
-      <div class="tabs" id="tabs">
-        <button data-tab="basic" class="${editTab==='basic'?'active':''}">基本情報</button>
-        <button data-tab="questions" class="${editTab==='questions'?'active':''}">質問・スコア（${d.questions.length}）</button>
-        <button data-tab="results" class="${editTab==='results'?'active':''}">結果タイプ（${d.resultTypes.length}）</button>
-        <button data-tab="publish" class="${editTab==='publish'?'active':''}">公開・配信</button>
+      <div class="editor-split" id="editor-split">
+        <div class="editor-main">
+          <div class="tabs" id="tabs">
+            <button data-tab="basic" class="${editTab==='basic'?'active':''}">基本情報</button>
+            <button data-tab="questions" class="${editTab==='questions'?'active':''}">質問・スコア（<span id="q-count">${d.questions.length}</span>）</button>
+            <button data-tab="results" class="${editTab==='results'?'active':''}">結果タイプ（${d.resultTypes.length}）</button>
+            <button data-tab="publish" class="${editTab==='publish'?'active':''}">公開・配信</button>
+          </div>
+          <div id="tab-body"></div>
+        </div>
+        <aside class="pv-pane">
+          <div class="pv-screens" id="pv-screens"></div>
+          <div class="pv-phone"><iframe id="pv-frame" src="${location.pathname}#/embed" title="スマホプレビュー"></iframe></div>
+          <p class="subtle pv-help">クリックで編集欄へ移動／画像はドラッグ＆ドロップで追加</p>
+        </aside>
       </div>
-      <div id="tab-body"></div>
     </div>`;
   paintTab();
 }
@@ -539,15 +556,144 @@ function paintTab() {
   else if (editTab === 'questions') body.innerHTML = tabQuestions(d);
   else if (editTab === 'results') body.innerHTML = tabResults(d);
   else if (editTab === 'publish') body.innerHTML = tabPublish(d);
+  const qc = $('#q-count'); if (qc) qc.textContent = d.questions.length;
+  schedulePreview();
 }
+
+// タブ切り替え（プレビューのiframeは作り直さない）。follow=true ならプレビューもタブに合わせる
+function switchTab(tab, follow) {
+  editTab = tab;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  if (follow) {
+    const d = editState;
+    if (tab === 'questions' && pvScreen.stage !== 'q') pvScreen = { stage: 'q', id: d.questions[0] && d.questions[0].id };
+    else if (tab === 'results' && pvScreen.stage !== 'result') pvScreen = { stage: 'result', id: d.resultTypes[0] && d.resultTypes[0].key };
+    else if (tab === 'basic' || tab === 'publish') pvScreen = { stage: 'top' };
+  }
+  paintTab();
+}
+
+/* ---- 右側のライブプレビュー（iframe に編集中の内容を送って描画） ---- */
+function schedulePreview() {
+  clearTimeout(pvTimer);
+  pvTimer = setTimeout(sendPreview, 120);
+}
+function sendPreview() {
+  const frame = $('#pv-frame'); const d = editState;
+  if (!frame || !d) return;
+  // 削除などで表示中の画面が無くなったらトップに戻す
+  if (pvScreen.stage === 'q' && !d.questions.some(q => q.id === pvScreen.id)) pvScreen = { stage: 'top' };
+  if (pvScreen.stage === 'result' && !d.resultTypes.some(r => r.key === pvScreen.id)) pvScreen = { stage: 'top' };
+  paintPvScreens();
+  if (frame.contentWindow) frame.contentWindow.postMessage({ type: 'pv-render', diag: JSON.parse(JSON.stringify(d)), screen: pvScreen }, location.origin);
+}
+function paintPvScreens() {
+  const box = $('#pv-screens'); const d = editState;
+  if (!box) return;
+  const btn = (stage, id, label) => {
+    const on = pvScreen.stage === stage && (stage === 'top' || pvScreen.id === id);
+    return `<button class="${on ? 'active' : ''}" data-action="pv-screen" data-stage="${stage}" data-id="${esc(id || '')}">${esc(label)}</button>`;
+  };
+  box.innerHTML = btn('top', '', 'トップ')
+    + d.questions.map((q, i) => btn('q', q.id, 'Q' + (i + 1))).join('')
+    + d.resultTypes.map(rt => btn('result', rt.key, '結果' + rt.key)).join('');
+}
+// プレビューでクリックされた部品に対応する入力欄へ移動する
+function focusEditorTarget(key) {
+  const d = editState; if (!d) return;
+  const [kind, a, b] = key.split(':');
+  const q = (s) => CSS.escape(s || '');
+  let tab, sel;
+  if (kind === 'q') { tab = 'questions'; sel = `[data-qfield="text"][data-q="${q(a)}"]`; }
+  else if (kind === 'c') { tab = 'questions'; sel = `[data-cfield="text"][data-q="${q(a)}"][data-c="${q(b)}"]`; }
+  else if (kind === 'rt') { tab = 'results'; sel = b === 'image' ? `[data-dropslot="rt:${q(a)}"]` : `[data-rfield="${q(b)}"][data-k="${q(a)}"]`; }
+  else if (kind === 'bannerImage' || kind === 'titleImage') { tab = 'basic'; sel = `[data-dropslot="${kind}"]`; }
+  else { tab = 'basic'; sel = `[data-field="${q(kind)}"]`; }
+  if (editTab !== tab) switchTab(tab, false);
+  setViewMode('edit');
+  const el = $(sel); if (!el) return;
+  const box = el.closest('.field') || el.closest('.score-row') || el;
+  box.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  if (el.matches('input, textarea, select, [contenteditable]')) el.focus({ preventScroll: true });
+  box.classList.remove('pv-flash'); void box.offsetWidth; box.classList.add('pv-flash');
+}
+// スマホ幅のときの「編集／プレビュー」切り替え
+function setViewMode(mode) {
+  const split = $('#editor-split'); if (!split) return;
+  split.classList.toggle('mode-preview', mode === 'preview');
+  document.querySelectorAll('#view-toggle button').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+}
+
+/* ---- 画像のアップロード（ファイル選択・ドラッグ＆ドロップ共通） ---- */
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
+const readAsDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+// slot: 'bannerImage' | 'titleImage' | 'rt:{key}' | 'c:{質問id}:{選択肢id}'
+async function uploadToSlot(file, slot) {
+  const d = editState; if (!d || !file) return;
+  const allowVideo = slot.startsWith('rt:');
+  if (!IMAGE_TYPES.includes(file.type) && !(allowVideo && VIDEO_TYPES.includes(file.type))) {
+    toast(allowVideo ? '画像（PNG/JPEG/GIF/WebP）か動画（MP4/WebM/MOV）を選んでください' : '画像（PNG/JPEG/GIF/WebP）を選んでください');
+    return;
+  }
+  if (file.size > 30 * 1024 * 1024) { toast('ファイルは30MBまでです'); return; }
+  toast('アップロード中…');
+  let res;
+  try { res = await api.upload(await readAsDataUrl(file)); }
+  catch (err) { toast('アップロードに失敗しました'); return; }
+  if (editState !== d || !$('#editor-split')) return; // アップロード中に別の画面へ移動していたら反映しない
+  const [kind, a, b] = slot.split(':');
+  if (kind === 'rt') {
+    const rt = d.resultTypes.find(x => x.key === a); if (!rt) return;
+    rt.image = res.url;
+  } else if (kind === 'c') {
+    const qq = d.questions.find(x => x.id === a);
+    const c = qq && qq.choices.find(x => x.id === b); if (!c) return;
+    c.image = res.url;
+  } else if (kind === 'bannerImage' || kind === 'titleImage') {
+    d[kind] = res.url;
+  } else return;
+  toast('画像を追加しました');
+  paintTab();
+}
+
+// 画像ファイルのドロップ枠。attr を持つ要素がドロップ先になる
+function setupDropZones(attr, isActive, onDrop) {
+  const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+  const mark = (zone) => document.querySelectorAll('.drop-over').forEach(z => { if (z !== zone) z.classList.remove('drop-over'); });
+  document.addEventListener('dragover', (e) => {
+    if (!isActive() || !hasFiles(e)) return;
+    e.preventDefault(); // 枠の外に落としてもブラウザがファイルを開かないようにする
+    const zone = e.target.closest(`[${attr}]`);
+    mark(zone);
+    if (zone) zone.classList.add('drop-over');
+    e.dataTransfer.dropEffect = zone ? 'copy' : 'none';
+  });
+  document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) mark(null); });
+  document.addEventListener('drop', (e) => {
+    if (!isActive() || !hasFiles(e)) return;
+    e.preventDefault();
+    mark(null);
+    const zone = e.target.closest(`[${attr}]`);
+    const file = e.dataTransfer.files[0];
+    if (zone && file) onDrop(zone.getAttribute(attr), file);
+  });
+}
+// 管理画面の入力欄側のドロップ枠
+setupDropZones('data-dropslot', () => !!$('#editor-split'), (slot, file) => uploadToSlot(file, slot));
 
 // 診断全体に付ける画像（バナー・タイトル画像）のアップロード欄
 function diagImageField(d, field, label, hint, name) {
-  return `<div class="field"><label>${label} <span class="hint">${hint}</span></label>
+  return `<div class="field" data-dropslot="${field}"><label>${label} <span class="hint">${hint}</span></label>
       ${d[field] ? `<div class="rt-img-preview"><img src="${esc(d[field])}" alt=""><button class="btn sm danger" data-action="diag-img-remove" data-f="${field}">削除</button></div>` : ''}
       <label class="btn sm" style="cursor:pointer">📤 ${name}をアップロード
         <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-diagupload="${field}" style="display:none">
-      </label></div>`;
+      </label> <span class="subtle">またはここへドロップ</span></div>`;
 }
 
 function tabBasic(d) {
@@ -610,7 +756,7 @@ function questionBlock(d, q, qi) {
     single: 'タップで1つ選び、次の質問へ自動で進みます。',
     multi: '「当てはまるものを全て」複数選べます。選んだ全ての点数が加算されます。',
     scale: '選択肢を目盛りとしたスライダーで表示します（左＝上、右＝下の順）。',
-    image: '各選択肢に画像URLを設定すると、画像カードで選べます。'
+    image: '各選択肢に画像を設定すると、画像カードで選べます（アップロード・ドロップ・URL入力）。'
   };
   return `<div class="section-block" data-q="${q.id}">
     <div class="sb-head">
@@ -630,7 +776,13 @@ function questionBlock(d, q, qi) {
           ${d.keys.map(k => `<div class="sc"><input type="number" min="0" data-score="${k}" data-q="${q.id}" data-c="${c.id}" value="${Number(c.scores[k]||0)}"></div>`).join('')}
           <button class="btn ghost sm" data-action="del-choice" data-q="${q.id}" data-c="${c.id}">✕</button>
         </div>
-        ${isImage ? `<input type="url" data-cfield="image" data-q="${q.id}" data-c="${c.id}" value="${esc(c.image||'')}" placeholder="画像URL（https://...）" style="margin-top:4px">` : ''}
+        ${isImage ? `<div class="choice-img-row" data-dropslot="c:${q.id}:${c.id}">
+          ${c.image ? `<img class="choice-thumb" src="${esc(c.image)}" alt="">` : ''}
+          <input type="url" data-cfield="image" data-q="${q.id}" data-c="${c.id}" value="${esc(c.image||'')}" placeholder="画像URL（https://...）">
+          <label class="btn sm" style="cursor:pointer;white-space:nowrap">📤 画像
+            <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" data-cupload data-q="${q.id}" data-c="${c.id}" style="display:none">
+          </label>
+        </div>` : ''}
       </div>`).join('')}
     <button class="btn sm" data-action="add-choice" data-q="${q.id}">＋ 選択肢</button>
   </div>`;
@@ -679,11 +831,11 @@ function resultBlock(rt) {
       ${f('ctaText','予約CTAボタン文言','例：栄養状態チェックを予約する')}
     </div>
     ${f('ctaUrl','予約URL（空欄なら基本予約URLを使用）','https://example.com/reserve')}
-    <div class="field"><label>結果ページに表示する画像・動画 <span class="hint">クーポン・ビフォーアフター・院長メッセージ動画など（任意・30MBまで）</span></label>
+    <div class="field" data-dropslot="rt:${rt.key}"><label>結果ページに表示する画像・動画 <span class="hint">クーポン・ビフォーアフター・院長メッセージ動画など（任意・30MBまで）</span></label>
       ${rt.image ? `<div class="rt-img-preview">${isVideo(rt.image) ? `<video src="${esc(rt.image)}" controls muted playsinline></video>` : `<img src="${esc(rt.image)}" alt="">`}<button class="btn sm danger" data-action="rt-img-remove" data-k="${rt.key}">削除</button></div>` : ''}
       <label class="btn sm" style="cursor:pointer">📤 画像・動画をアップロード
         <input type="file" accept="image/*,video/mp4,video/webm,video/quicktime" data-imgupload data-k="${rt.key}" style="display:none">
-      </label>
+      </label> <span class="subtle">またはここへドロップ</span>
     </div>
   </div>`;
 }
@@ -743,13 +895,14 @@ function commitField(target) {
     const rt = d.resultTypes.find(x => x.key === target.dataset.k);
     if (rt) rt[target.dataset.rfield] = target.dataset.rfield === 'priority' ? Number(val || 1) : val;
   }
+  schedulePreview();
 }
 
 async function saveEditor() {
   const d = editState;
-  if (!d.title.trim()) { editTab = 'basic'; paintEditor($('#root')); toast('診断タイトルを入力してください'); return; }
+  if (!d.title.trim()) { switchTab('basic', true); toast('診断タイトルを入力してください'); return; }
   d.gtmId = normalizeGtmId(d.gtmId);
-  if (d.gtmId && !GTM_ID_RE.test(d.gtmId)) { editTab = 'publish'; paintEditor($('#root')); toast('GTMのIDは「GTM-XXXXXXX」の形式で入力してください'); return; }
+  if (d.gtmId && !GTM_ID_RE.test(d.gtmId)) { switchTab('publish', true); toast('GTMのIDは「GTM-XXXXXXX」の形式で入力してください'); return; }
   // スラッグ生成と重複回避はサーバ側で実施
   const isNew = d._fresh === true;
   const payload = JSON.parse(JSON.stringify(d)); delete payload._fresh;
@@ -979,6 +1132,55 @@ async function viewPublic(root, slug, sub, params) {
   paintPublic(root);
 }
 
+/* ---- 編集画面の右側に埋め込むプレビュー（iframe内で動く） ---- */
+function viewEmbed(root) {
+  document.body.classList.add('pv-edit');
+  root.innerHTML = '<div class="pub"><div class="pub-inner"><p class="subtle">プレビューを準備中…</p></div></div>';
+  if (window.parent !== window) window.parent.postMessage({ type: 'pv-ready' }, location.origin);
+}
+function paintEmbed(diag, screen) {
+  const root = $('#root');
+  const key = screen.stage + ':' + (screen.id || '');
+  const sameScreen = pubState && pubState.screenKey === key;
+  const y = window.scrollY;
+  const st = { diagId: diag.id, diag, source: 'preview', isPreview: true, editMode: true, stage: 'top', qIndex: 0, answers: {}, started: false, screenKey: key };
+  if (!diag.questions || diag.questions.length === 0) {
+    root.innerHTML = '<div class="pub"><div class="pub-inner empty"><p>質問を1つ以上追加してください。</p></div></div>';
+    return;
+  }
+  if (screen.stage === 'q') {
+    st.stage = 'q'; st.qIndex = Math.max(0, diag.questions.findIndex(q => q.id === screen.id));
+  } else if (screen.stage === 'result' && diag.resultTypes.length) {
+    const rt = diag.resultTypes.find(r => r.key === screen.id) || diag.resultTypes[0];
+    // 見本のスコア（表示中のタイプが1位になるよう並べる）
+    const sample = [10, 7, 5, 3, 2]; let i = 1; const totals = {};
+    diag.resultTypes.forEach(t => { totals[t.key] = t.key === rt.key ? sample[0] : sample[Math.min(i++, 4)]; });
+    st.stage = 'result'; st.result = { winner: rt, totals };
+  }
+  pubState = st;
+  paintPublic(root);
+  if (sameScreen) window.scrollTo(0, y); // 入力のたびに先頭へ戻らないよう、同じ画面ならスクロール位置を保つ
+}
+// 編集プレビューのときだけ付ける属性（クリック先の入力欄・画像のドロップ先）
+function edAttr(editKey, dropSlot) {
+  if (!pubState || !pubState.editMode) return '';
+  return ` data-edit="${esc(editKey)}"` + (dropSlot ? ` data-drop="${esc(dropSlot)}"` : '');
+}
+// 編集プレビューのときだけ、空の画像枠に点線のドロップ枠を出す（公開ページには出ない）
+function dropPh(slot, label, cls = '') {
+  if (!pubState || !pubState.editMode) return '';
+  return `<div class="pv-drop ${cls}"${edAttr(slot.startsWith('rt:') ? slot + ':image' : slot, slot)}>🖼️ ${esc(label)}</div>`;
+}
+// プレビュー内のクリックは画面遷移させず、親の編集画面へ「どこが押されたか」だけ伝える
+document.addEventListener('click', (e) => {
+  if (!document.body.classList.contains('pv-edit')) return;
+  e.preventDefault(); e.stopPropagation();
+  const t = e.target.closest('[data-edit]');
+  if (t) window.parent.postMessage({ type: 'pv-focus', key: t.dataset.edit }, location.origin);
+}, true);
+setupDropZones('data-drop', () => document.body.classList.contains('pv-edit'),
+  (slot, file) => window.parent.postMessage({ type: 'pv-drop', slot, file }, location.origin));
+
 function paintPublic(root) {
   const st = pubState; const d = st.diag;
   if (st.stage === 'top' && d.startInline) { st.stage = 'q'; st.qIndex = 0; } // スタート画面を省略
@@ -998,15 +1200,17 @@ function pubOpen(d) {
   return `<div class="${cls.join(' ')}"${style}>`;
 }
 function bannerHtml(d) {
-  if (!d.bannerImage) return '';
+  if (!d.bannerImage) return dropPh('bannerImage', 'バナー画像をドロップ（任意）', 'banner');
   const img = `<img src="${esc(d.bannerImage)}" alt="">`;
   // リンクは http(s) のみ許可（javascript: などは無視して画像だけ表示）
   const link = /^https?:\/\//i.test(d.bannerLink || '') ? d.bannerLink : '';
+  const ed = edAttr('bannerImage', 'bannerImage');
   return link
-    ? `<a class="pub-banner" id="pub-banner" href="${esc(link)}" target="_blank" rel="noopener">${img}</a>`
-    : `<div class="pub-banner">${img}</div>`;
+    ? `<a class="pub-banner" id="pub-banner" href="${esc(link)}" target="_blank" rel="noopener"${ed}>${img}</a>`
+    : `<div class="pub-banner"${ed}>${img}</div>`;
 }
-const titleImgHtml = (d) => d.titleImage ? `<h1 class="pub-title-img"><img src="${esc(d.titleImage)}" alt="${esc(d.title)}"></h1>` : '';
+const titleImgHtml = (d) => d.titleImage ? `<h1 class="pub-title-img"${edAttr('titleImage', 'titleImage')}><img src="${esc(d.titleImage)}" alt="${esc(d.title)}"></h1>` : '';
+const titlePh = () => dropPh('titleImage', 'タイトル画像をドロップ（任意）', 'sm');
 
 function paintPubTop(root) {
   setLeaveGuard(false); // トップでは確認を出さない
@@ -1014,11 +1218,11 @@ function paintPubTop(root) {
   const minutes = Math.max(1, Math.round(d.questions.length * 0.3));
   root.innerHTML = `
     ${pubOpen(d)}${bannerHtml(d)}<div class="pub-inner">
-      ${pubState.isPreview ? '<div class="flash-note">プレビュー表示中（計測されません）</div>' : ''}
+      ${pubState.isPreview && !pubState.editMode ? '<div class="flash-note">プレビュー表示中（計測されません）</div>' : ''}
       <div class="pub-hero">
         <div class="eyebrow">無料診断</div>
-        ${titleImgHtml(d) || `<h1>${esc(d.title)}</h1>`}
-        <div class="pub-lead">${esc(d.topCopy || d.description)}</div>
+        ${titleImgHtml(d) || `${titlePh()}<h1${edAttr('title')}>${esc(d.title)}</h1>`}
+        <div class="pub-lead"${edAttr('topCopy')}>${esc(d.topCopy || d.description)}</div>
       </div>
       <div class="pub-facts">
         <div class="pub-fact"><div class="n">${d.questions.length}問</div><div class="l">かんたん回答</div></div>
@@ -1052,7 +1256,8 @@ function paintPubQuestion(root) {
   const q = d.questions[qi];
   const total = d.questions.length;
   const pct = Math.round((qi) / total * 100);
-  const animClass = st.dir === 'back' ? 'q-card q-enter-back' : 'q-card q-enter';
+  // 編集プレビューでは入力のたびに描き直すので、アニメーションは付けない
+  const animClass = st.editMode ? 'q-card' : (st.dir === 'back' ? 'q-card q-enter-back' : 'q-card q-enter');
   const type = q.type || 'single';
   const stored = st.answers[q.id];
   const selArr = Array.isArray(stored) ? stored.slice() : [];
@@ -1063,21 +1268,21 @@ function paintPubQuestion(root) {
   let body = '', needsNext = false;
   if (type === 'image') {
     body = `<div id="choices" class="img-grid">
-      ${q.choices.map((c, ci) => `<button class="img-choice${isSel(ci) ? ' picked' : ''}" data-ci="${ci}">
-        ${c.image ? `<img src="${esc(c.image)}" alt="" loading="lazy">` : '<div class="img-ph">🖼️</div>'}
+      ${q.choices.map((c, ci) => `<button class="img-choice${isSel(ci) ? ' picked' : ''}" data-ci="${ci}"${edAttr(`c:${q.id}:${c.id}`, `c:${q.id}:${c.id}`)}>
+        ${c.image ? `<img src="${esc(c.image)}" alt="" loading="lazy">` : `<div class="img-ph">🖼️${st.editMode ? '<small>ドロップ</small>' : ''}</div>`}
         <span>${esc(c.text)}</span></button>`).join('')}
     </div>`;
   } else if (type === 'multi') {
     needsNext = true;
     body = `<div class="q-hint">当てはまるものを全て選んでください（複数可）</div>
       <div id="choices">
-      ${q.choices.map((c, ci) => `<button class="choice multi${selArr.includes(ci) ? ' picked' : ''}" data-ci="${ci}">
+      ${q.choices.map((c, ci) => `<button class="choice multi${selArr.includes(ci) ? ' picked' : ''}" data-ci="${ci}"${edAttr(`c:${q.id}:${c.id}`)}>
         <span class="chk">${selArr.includes(ci) ? '✓' : ''}</span>${esc(c.text)}</button>`).join('')}
       </div>`;
   } else if (type === 'scale') {
     needsNext = true;
     const n = q.choices.length;
-    body = `<div class="scale-wrap">
+    body = `<div class="scale-wrap"${edAttr(`c:${q.id}:${q.choices[0] ? q.choices[0].id : ''}`)}>
         <input type="range" id="scale" min="0" max="${n - 1}" step="1" value="${curIdx}">
         <div class="scale-label" id="scale-label">${esc(q.choices[curIdx] ? q.choices[curIdx].text : '')}</div>
         <div class="scale-ends"><span>${esc(q.choices[0] ? q.choices[0].text : '')}</span><span>${esc(q.choices[n - 1] ? q.choices[n - 1].text : '')}</span></div>
@@ -1085,22 +1290,22 @@ function paintPubQuestion(root) {
   } else { // single（丸ボタン型では「選ぶ→次へ」の2段階にする）
     needsNext = pill;
     body = `<div id="choices">
-      ${q.choices.map((c, ci) => `<button class="choice${isSel(ci) ? ' picked' : ''}" data-ci="${ci}">${esc(c.text)}</button>`).join('')}
+      ${q.choices.map((c, ci) => `<button class="choice${isSel(ci) ? ' picked' : ''}" data-ci="${ci}"${edAttr(`c:${q.id}:${c.id}`)}>${esc(c.text)}</button>`).join('')}
     </div>`;
   }
 
   const nextDisabled = (type === 'multi' && selArr.length === 0) || (type === 'single' && typeof stored !== 'number');
   root.innerHTML = `
     ${pubOpen(d)}${d.startInline ? bannerHtml(d) : ''}<div class="pub-inner">
-      ${st.isPreview && d.startInline && qi === 0 ? '<div class="flash-note">プレビュー表示中（計測されません）</div>' : ''}
-      ${d.startInline ? titleImgHtml(d) : ''}
+      ${st.isPreview && !st.editMode && d.startInline && qi === 0 ? '<div class="flash-note">プレビュー表示中（計測されません）</div>' : ''}
+      ${d.startInline ? (titleImgHtml(d) || titlePh()) : ''}
       <div class="q-head" id="q-head">
         <div class="progress"><i style="width:${pct}%"></i></div>
         <div class="q-step"><span class="cur">${qi + 1}</span><span class="tot"> / ${total} 問</span></div>
       </div>
       <div class="${animClass}" data-qkey="${qi}">
         <div class="q-badge">Q${qi + 1}</div>
-        <div class="q-text">${esc(q.text)}</div>
+        <div class="q-text"${edAttr(`q:${q.id}`)}>${esc(q.text)}</div>
         ${body}
       </div>
       ${needsNext ? `<button class="cta-big q-next" id="pub-next"${nextDisabled ? ' disabled' : ''}>次へ進む</button>` : ''}
@@ -1178,17 +1383,17 @@ function paintPubResult(root) {
   const rt = st.result.winner; const totals = st.result.totals;
   const ctaUrl = rt.ctaUrl || d.reserveUrl || '#';
   const maxTotal = Math.max(1, ...Object.values(totals));
-  const section = (icon, title, text, cls = '') => text ? `
-    <div class="res-section ${cls}"><h3><span class="ico">${icon}</span>${title}</h3><div class="rich">${renderRich(text)}</div></div>` : '';
+  const section = (icon, title, field, cls = '') => rt[field] ? `
+    <div class="res-section ${cls}"${edAttr(`rt:${rt.key}:${field}`)}><h3><span class="ico">${icon}</span>${title}</h3><div class="rich">${renderRich(rt[field])}</div></div>` : '';
 
   root.innerHTML = `
     ${pubOpen(d)}<div class="pub-inner">
-      <div class="res-badge">
+      <div class="res-badge"${edAttr(`rt:${rt.key}:name`)}>
         <div class="pre">あなたのタイプは…</div>
         <div class="type">${esc(rt.name)}</div>
       </div>
-      ${rt.summary ? `<p class="pub-lead" style="text-align:center">${esc(rt.summary)}</p>` : ''}
-      ${rt.image ? `<div class="res-image">${isVideo(rt.image) ? `<video src="${esc(rt.image)}" controls playsinline preload="metadata"></video>` : `<img src="${esc(rt.image)}" alt="" loading="lazy">`}</div>` : ''}
+      ${rt.summary ? `<p class="pub-lead" style="text-align:center"${edAttr(`rt:${rt.key}:summary`)}>${esc(rt.summary)}</p>` : ''}
+      ${rt.image ? `<div class="res-image"${edAttr(`rt:${rt.key}:image`, `rt:${rt.key}`)}>${isVideo(rt.image) ? `<video src="${esc(rt.image)}" controls playsinline preload="metadata"></video>` : `<img src="${esc(rt.image)}" alt="" loading="lazy">`}</div>` : dropPh(`rt:${rt.key}`, '結果ページの画像・動画をドロップ（任意）')}
 
       <div class="score-bars">
         ${d.resultTypes.map(t => {
@@ -1198,20 +1403,20 @@ function paintPubResult(root) {
         }).join('')}
       </div>
 
-      ${section('1', 'このタイプの特徴', rt.description)}
-      ${section('2', 'よくある間違い', rt.mistake)}
-      ${section('!', 'このまま放置すると…', rt.risk, 'risk')}
-      ${section('3', '本来必要な改善方法', rt.solution)}
-      ${section('4', '当院でできること', rt.service)}
+      ${section('1', 'このタイプの特徴', 'description')}
+      ${section('2', 'よくある間違い', 'mistake')}
+      ${section('!', 'このまま放置すると…', 'risk', 'risk')}
+      ${section('3', '本来必要な改善方法', 'solution')}
+      ${section('4', '当院でできること', 'service')}
 
       ${rt.recommendedMenu ? `
-        <div class="res-menu">
+        <div class="res-menu"${edAttr(`rt:${rt.key}:recommendedMenu`)}>
           <div class="label">あなたにおすすめの予約メニュー</div>
           <div class="name">${esc(rt.recommendedMenu)}</div>
         </div>` : ''}
 
       <div class="cta-sticky">
-        <a class="cta-big accent" id="pub-cta" href="${esc(ctaUrl)}" target="_blank" rel="noopener">${esc(rt.ctaText || '予約する')}</a>
+        <a class="cta-big accent" id="pub-cta" href="${esc(ctaUrl)}" target="_blank" rel="noopener"${edAttr(`rt:${rt.key}:ctaText`)}>${esc(rt.ctaText || '予約する')}</a>
         <div class="pub-note">${pubState.isPreview ? 'プレビュー中（クリックは計測されません）' : 'タップで予約ページへ移動します'}</div>
         <button class="btn ghost block" id="pub-retry" style="margin-top:10px">もう一度診断する</button>
       </div>
@@ -1245,6 +1450,7 @@ function commitRich(ed) {
   if (!editState) return;
   const rt = editState.resultTypes.find(x => x.key === ed.dataset.k);
   if (rt) rt[ed.dataset.rfield] = sanitizeHtml(ed.innerHTML);
+  schedulePreview();
 }
 
 /* ============================================================
@@ -1257,7 +1463,7 @@ document.addEventListener('click', (e) => {
     return;
   }
   const tabBtn = e.target.closest('#tabs button');
-  if (tabBtn) { editTab = tabBtn.dataset.tab; paintEditor($('#root')); return; }
+  if (tabBtn) { switchTab(tabBtn.dataset.tab, true); return; }
 
   const act = e.target.closest('[data-action]');
   if (!act) return;
@@ -1265,6 +1471,12 @@ document.addEventListener('click', (e) => {
 
   // editor actions
   if (action === 'save') { saveEditor(); return; }
+  if (action === 'view-mode') { setViewMode(act.dataset.mode); return; }
+  if (action === 'pv-screen') {
+    pvScreen = act.dataset.stage === 'top' ? { stage: 'top' } : { stage: act.dataset.stage, id: act.dataset.id };
+    sendPreview();
+    return;
+  }
   if (action === 'preview') {
     e.preventDefault();
     // 同一タブでプレビュー（編集中の内容 editState をそのまま表示）
@@ -1345,33 +1557,36 @@ document.addEventListener('change', (e) => {
     const q = editState.questions.find(x => x.id === t.dataset.q);
     if (q) { q.type = t.value; paintTab(); }
   } else if (t.dataset && t.dataset.imgupload != null && t.files && t.files[0]) {
-    const file = t.files[0];
-    if (file.size > 30 * 1024 * 1024) { toast('ファイルは30MBまでです'); t.value = ''; return; }
-    const rt = editState.resultTypes.find(x => x.key === t.dataset.k);
-    if (!rt) return;
-    toast('画像をアップロード中…');
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const res = await api.upload(reader.result);
-        rt.image = res.url; toast('画像を追加しました'); paintTab();
-      } catch (err) { toast('アップロードに失敗しました'); }
-    };
-    reader.readAsDataURL(file);
+    uploadToSlot(t.files[0], 'rt:' + t.dataset.k); t.value = '';
   } else if (t.dataset && t.dataset.diagupload && t.files && t.files[0]) {
-    const file = t.files[0];
-    if (file.size > 30 * 1024 * 1024) { toast('ファイルは30MBまでです'); t.value = ''; return; }
-    const d = editState; const field = t.dataset.diagupload;
-    toast('画像をアップロード中…');
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const res = await api.upload(reader.result);
-        d[field] = res.url; toast('画像を追加しました');
-        if (editState === d && editTab === 'basic') paintTab(); // アップロード中に画面を移動していたら再描画しない
-      } catch (err) { toast('アップロードに失敗しました（PNG/JPEG/GIF/WebPのみ）'); t.value = ''; }
-    };
-    reader.readAsDataURL(file);
+    uploadToSlot(t.files[0], t.dataset.diagupload); t.value = '';
+  } else if (t.dataset && t.dataset.cupload != null && t.files && t.files[0]) {
+    uploadToSlot(t.files[0], 'c:' + t.dataset.q + ':' + t.dataset.c); t.value = '';
+  }
+});
+
+// 左で触っている場所に合わせて、プレビューの画面を切り替える
+document.addEventListener('focusin', (e) => {
+  if (!editState || !$('#editor-split') || !e.target.closest('#tab-body')) return;
+  const qEl = e.target.closest('[data-q]'); const kEl = e.target.closest('[data-k]');
+  let next;
+  if (qEl) next = { stage: 'q', id: qEl.dataset.q };
+  else if (kEl) next = { stage: 'result', id: kEl.dataset.k };
+  else if (editTab === 'basic') next = { stage: 'top' };
+  if (next && (next.stage !== pvScreen.stage || next.id !== pvScreen.id)) { pvScreen = next; sendPreview(); }
+});
+
+// プレビュー（iframe）からのメッセージ
+window.addEventListener('message', (e) => {
+  if (e.origin !== location.origin) return;
+  const frame = $('#pv-frame');
+  const m = e.data || {};
+  if (frame && e.source === frame.contentWindow) {
+    if (m.type === 'pv-ready') sendPreview();
+    else if (m.type === 'pv-focus' && typeof m.key === 'string') focusEditorTarget(m.key);
+    else if (m.type === 'pv-drop' && typeof m.slot === 'string' && m.file instanceof Blob) uploadToSlot(m.file, m.slot);
+  } else if (window.parent !== window && e.source === window.parent && m.type === 'pv-render' && m.diag) {
+    paintEmbed(m.diag, m.screen || { stage: 'top' });
   }
 });
 
@@ -1380,7 +1595,7 @@ window.addEventListener('hashchange', render);
 async function boot() {
   // 公開ページ表示時はシードをスキップ（受診者の表示を速くする）
   const { parts } = parseHash();
-  if (parts[0] !== 'd') { await seedIfEmpty(); }
+  if (parts[0] !== 'd' && parts[0] !== 'embed') { await seedIfEmpty(); }
   render();
 }
 window.addEventListener('DOMContentLoaded', boot);

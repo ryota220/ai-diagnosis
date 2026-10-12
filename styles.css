@@ -181,6 +181,57 @@ textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
 }
 .phone .screen { height: 720px; overflow-y: auto; background: #fff; }
 
+/* ---------- 編集画面：左に編集欄・右にライブプレビュー ---------- */
+.wrap.wide { max-width: 1400px; }
+.editor-split { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 24px; align-items: start; }
+.editor-main { min-width: 0; }
+.pv-pane { position: sticky; top: 76px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.pv-screens { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; max-height: 64px; overflow-y: auto; }
+.pv-screens button {
+  border: 1px solid var(--line); background: #fff; color: var(--muted); border-radius: 999px;
+  padding: 3px 10px; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.pv-screens button.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+.pv-phone {
+  width: 395px; background: #1f2530; padding: 10px; border-radius: 36px; box-shadow: var(--shadow-lg);
+}
+.pv-phone iframe {
+  display: block; width: 375px; height: min(720px, calc(100vh - 210px)); min-height: 420px;
+  border: 0; border-radius: 26px; background: #fff;
+}
+.pv-help { margin: 0; text-align: center; }
+.view-toggle { display: none; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.view-toggle button { border: 0; background: #fff; padding: 7px 12px; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; }
+.view-toggle button.active { background: var(--brand); color: #fff; }
+/* プレビューから移動してきた入力欄を一瞬光らせる */
+.pv-flash { animation: pvFlash 1.4s ease; border-radius: 10px; }
+@keyframes pvFlash { 0%, 40% { box-shadow: 0 0 0 3px rgba(47,109,246,.45); background: #eff6ff; } 100% { box-shadow: 0 0 0 0 transparent; } }
+/* 画像のドロップ先（左の入力欄・右のプレビュー共通） */
+.drop-over { outline: 3px dashed var(--brand) !important; outline-offset: 2px; background: #eff6ff !important; }
+.choice-img-row { display: flex; gap: 6px; align-items: center; margin-top: 4px; border-radius: 10px; }
+.choice-img-row input[type=url] { flex: 1; min-width: 0; }
+.choice-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); flex: none; }
+/* iframe内（編集プレビュー）：クリックできる部品に枠、空の画像枠は点線 */
+.pv-edit [data-edit] { cursor: pointer; }
+.pv-edit [data-edit]:hover { outline: 2px dashed var(--brand); outline-offset: 2px; border-radius: 6px; }
+.pv-drop {
+  border: 2px dashed #b6c3dc; border-radius: 12px; background: #f8fafc; color: var(--muted);
+  text-align: center; font-size: 13px; padding: 22px 12px; margin: 0 0 14px;
+}
+.pv-drop.sm { padding: 10px 12px; }
+.pv-drop.banner { margin: 12px 20px 0; }
+.img-ph small { display: block; font-size: 11px; color: var(--muted); }
+
+@media (max-width: 1000px) {
+  .editor-split { grid-template-columns: 1fr; }
+  .view-toggle { display: inline-flex; }
+  .editor-split .pv-pane { display: none; position: static; }
+  .editor-split.mode-preview .pv-pane { display: flex; }
+  .editor-split.mode-preview .editor-main { display: none; }
+  .pv-phone { width: 100%; max-width: 395px; }
+  .pv-phone iframe { width: 100%; height: calc(100vh - 230px); }
+}
+
 /* ---------- Public diagnosis (mobile-first) ---------- */
 .pub { max-width: 480px; margin: 0 auto; min-height: 100vh; background: #fff; }
 .pub-inner { padding: 22px 20px 40px; }
