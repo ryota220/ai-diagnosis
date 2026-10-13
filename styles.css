@@ -391,7 +391,7 @@ textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
 .res-section.risk h3 .ico { background: #ffedd5; color: var(--warn); }
 .res-menu { background: #f3f6fc; border-radius: 14px; padding: 16px; margin: 22px 0; }
 .res-menu .label { font-size: 12px; color: var(--brand-ink); font-weight: 800; }
-.res-menu .name { font-size: 18px; font-weight: 800; margin: 4px 0 0; }
+.res-menu .name { font-size: 18px; font-weight: 800; margin: 4px 0 0; white-space: pre-line; }
 .cta-sticky { position: sticky; bottom: 0; background: linear-gradient(180deg, rgba(255,255,255,0), #fff 30%); padding: 16px 0 4px; }
 
 .score-bars { margin: 18px 0; }
@@ -466,4 +466,16 @@ input, select, textarea { max-width: 100%; }
   .two-col, .three-col { grid-template-columns: 1fr; }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
   .bar-list .row .nm { width: 110px; }
+}
+
+/* 結果ページの本文セクション（編集画面） */
+.sec-edit { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 2px; margin: 0 0 14px; }
+.sec-edit-head { display: flex; gap: 10px; align-items: flex-end; }
+.sec-edit-head .field { flex: 1; margin-bottom: 10px; }
+.sec-edit-head .sec-style { flex: 0 0 190px; }
+.sec-no { font-weight: 800; font-size: 18px; margin-bottom: 18px; }
+.res-section .res-image { margin: 12px 0 0; }
+@media (max-width: 640px) {
+  .sec-edit-head { flex-wrap: wrap; }
+  .sec-edit-head .sec-style { flex: 1 1 100%; }
 }

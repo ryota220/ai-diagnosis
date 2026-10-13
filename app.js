@@ -117,6 +117,18 @@ function pushDataLayer(event, st, extra = {}) {
 /* ---------------- factory ---------------- */
 // 結果ページのおすすめ欄の見出し（未設定の診断はこの文言のまま）
 const DEFAULT_MENU_LABEL = 'あなたにおすすめの予約メニュー';
+// 結果ページの本文セクション。見出し（{field}Title）・見た目（{field}Style）・画像（{field}Image）は結果タイプごとに変更でき、未設定なら下の初期値
+const RESULT_SECTIONS = [
+  { field: 'description', title: 'このタイプの特徴', style: 'number', hint: '特徴・なぜ改善しなかったのか' },
+  { field: 'mistake', title: 'よくある間違い', style: 'number', hint: '' },
+  { field: 'risk', title: 'このまま放置すると…', style: 'alert', hint: '' },
+  { field: 'solution', title: '本来必要な改善方法', style: 'number', hint: '' },
+  { field: 'service', title: '当院でできること', style: 'number', hint: 'LINE登録へ誘導する場合などは見出しを変更' },
+];
+const SECTION_STYLES = { number: '番号', alert: '！マーク＋オレンジ枠', plain: 'マークなし' };
+const sectionDef = (field) => RESULT_SECTIONS.find(x => x.field === field);
+const sectionTitle = (rt, sec) => rt[sec.field + 'Title'] || sec.title;
+const sectionStyle = (rt, sec) => SECTION_STYLES[rt[sec.field + 'Style']] ? rt[sec.field + 'Style'] : sec.style;
 
 function emptyResultType(key) {
   return {
@@ -609,7 +621,13 @@ function focusEditorTarget(key) {
   let tab, sel;
   if (kind === 'q') { tab = 'questions'; sel = `[data-qfield="text"][data-q="${q(a)}"]`; }
   else if (kind === 'c') { tab = 'questions'; sel = `[data-cfield="text"][data-q="${q(a)}"][data-c="${q(b)}"]`; }
-  else if (kind === 'rt') { tab = 'results'; sel = b === 'image' ? `[data-dropslot="rt:${q(a)}"]` : `[data-rfield="${q(b)}"][data-k="${q(a)}"]`; }
+  else if (kind === 'rt') {
+    tab = 'results';
+    const secImg = /Image$/.test(b || '') && sectionDef(b.slice(0, -5));
+    sel = b === 'image' ? `[data-dropslot="rt:${q(a)}"]`
+      : secImg ? `[data-dropslot="rt:${q(a)}:${q(secImg.field)}"]`
+      : `[data-rfield="${q(b)}"][data-k="${q(a)}"]`;
+  }
   else if (kind === 'bannerImage' || kind === 'titleImage') { tab = 'basic'; sel = `[data-dropslot="${kind}"]`; }
   else { tab = 'basic'; sel = `[data-field="${q(kind)}"]`; }
   if (editTab !== tab) switchTab(tab, false);
@@ -636,7 +654,7 @@ const readAsDataUrl = (file) => new Promise((resolve, reject) => {
   reader.onerror = reject;
   reader.readAsDataURL(file);
 });
-// slot: 'bannerImage' | 'titleImage' | 'rt:{key}' | 'c:{質問id}:{選択肢id}'
+// slot: 'bannerImage' | 'titleImage' | 'rt:{key}' | 'rt:{key}:{セクション}' | 'c:{質問id}:{選択肢id}'
 async function uploadToSlot(file, slot) {
   const d = editState; if (!d || !file) return;
   const allowVideo = slot.startsWith('rt:');
@@ -653,7 +671,9 @@ async function uploadToSlot(file, slot) {
   const [kind, a, b] = slot.split(':');
   if (kind === 'rt') {
     const rt = d.resultTypes.find(x => x.key === a); if (!rt) return;
-    rt.image = res.url;
+    if (!b) rt.image = res.url;
+    else if (sectionDef(b)) rt[b + 'Image'] = res.url;
+    else return;
   } else if (kind === 'c') {
     const qq = d.questions.find(x => x.id === a);
     const c = qq && qq.choices.find(x => x.id === b); if (!c) return;
@@ -811,6 +831,29 @@ function richField(rt, field, label) {
     <div class="rich-edit" contenteditable="true" data-rfield="${field}" data-k="${rt.key}">${richInit(rt[field])}</div>
   </div>`;
 }
+// 結果ページの本文セクション1つ分の編集欄（見出し・見た目・本文・画像）
+function sectionEditBlock(rt, sec, i) {
+  const img = rt[sec.field + 'Image'];
+  const style = sectionStyle(rt, sec);
+  return `<div class="sec-edit">
+    <div class="sec-edit-head">
+      <span class="sec-no">${'①②③④⑤'[i]}</span>
+      <div class="field"><label>見出し ${sec.hint ? `<span class="hint">${sec.hint}</span>` : ''}</label>
+        <input type="text" data-rfield="${sec.field}Title" data-k="${rt.key}" value="${esc(rt[sec.field + 'Title'] || '')}" placeholder="${esc(sec.title)}"></div>
+      <div class="field sec-style"><label>見た目</label>
+        <select data-rfield="${sec.field}Style" data-k="${rt.key}">
+          ${Object.entries(SECTION_STYLES).map(([v, n]) => `<option value="${v}" ${style === v ? 'selected' : ''}>${n}</option>`).join('')}
+        </select></div>
+    </div>
+    ${richField(rt, sec.field, '本文')}
+    <div class="field" data-dropslot="rt:${rt.key}:${sec.field}"><label>本文の下に入れる画像・動画 <span class="hint">任意・30MBまで</span></label>
+      ${img ? `<div class="rt-img-preview">${isVideo(img) ? `<video src="${esc(img)}" controls muted playsinline></video>` : `<img src="${esc(img)}" alt="">`}<button class="btn sm danger" data-action="rt-img-remove" data-k="${rt.key}" data-sec="${sec.field}">削除</button></div>` : ''}
+      <label class="btn sm" style="cursor:pointer">📤 画像・動画をアップロード
+        <input type="file" accept="image/*,video/mp4,video/webm,video/quicktime" data-imgupload data-k="${rt.key}" data-sec="${sec.field}" style="display:none">
+      </label> <span class="subtle">またはここへドロップ</span>
+    </div>
+  </div>`;
+}
 function resultBlock(rt) {
   const f = (field, label, ph, ta) => ta
     ? `<div class="field"><label>${label}</label><textarea data-rfield="${field}" data-k="${rt.key}" placeholder="${ph}">${esc(rt[field]||'')}</textarea></div>`
@@ -824,14 +867,10 @@ function resultBlock(rt) {
     </div>
     ${f('summary','一言サマリー','このタイプの要約')}
     <div class="flash-note" style="margin:4px 0 14px">下の詳細は<b>文字を選択してツールバー</b>で装飾できます（太字・文字色・マーカー）。</div>
-    ${richField(rt,'description','① このタイプの特徴 / なぜ改善しなかったのか')}
-    ${richField(rt,'mistake','② よくある間違い')}
-    ${richField(rt,'risk','③ このまま放置するとどうなるか')}
-    ${richField(rt,'solution','④ 本来必要な改善方法')}
-    ${richField(rt,'service','⑤ 当院でできること')}
+    ${RESULT_SECTIONS.map((sec, i) => sectionEditBlock(rt, sec, i)).join('')}
     ${f('menuLabel',`おすすめ欄の見出し <span class="hint">空欄なら「${DEFAULT_MENU_LABEL}」</span>`,'例：あなたへのアドバイス')}
     <div class="two-col">
-      ${f('recommendedMenu','おすすめ欄の内容（メニュー名・アドバイスなど）','例：栄養状態チェック付きカウンセリング')}
+      ${f('recommendedMenu','おすすめ欄の内容（メニュー名・アドバイスなど。改行できます）','例：栄養状態チェック付きカウンセリング', true)}
       ${f('ctaText','予約CTAボタン文言','例：栄養状態チェックを予約する')}
     </div>
     ${f('ctaUrl','予約URL（空欄なら基本予約URLを使用）','https://example.com/reserve')}
@@ -1387,8 +1426,20 @@ function paintPubResult(root) {
   const rt = st.result.winner; const totals = st.result.totals;
   const ctaUrl = rt.ctaUrl || d.reserveUrl || '#';
   const maxTotal = Math.max(1, ...Object.values(totals));
-  const section = (icon, title, field, cls = '') => rt[field] ? `
-    <div class="res-section ${cls}"${edAttr(`rt:${rt.key}:${field}`)}><h3><span class="ico">${icon}</span>${title}</h3><div class="rich">${renderRich(rt[field])}</div></div>` : '';
+  // 本文か画像がある セクションだけ表示。番号は「番号」スタイルのセクションに上から振る
+  let num = 0;
+  const sectionsHtml = RESULT_SECTIONS.map(sec => {
+    const body = rt[sec.field]; const img = rt[sec.field + 'Image'];
+    if (!body && !img) return '';
+    const style = sectionStyle(rt, sec);
+    const icon = style === 'number' ? `<span class="ico">${++num}</span>` : style === 'alert' ? '<span class="ico">!</span>' : '';
+    const k = `rt:${rt.key}:${sec.field}`;
+    return `<div class="res-section ${style === 'alert' ? 'risk' : ''}"${edAttr(k, k)}>
+      <h3${edAttr(k + 'Title')}>${icon}${esc(sectionTitle(rt, sec))}</h3>
+      ${body ? `<div class="rich">${renderRich(body)}</div>` : ''}
+      ${img ? `<div class="res-image"${edAttr(k + 'Image', k)}>${isVideo(img) ? `<video src="${esc(img)}" controls playsinline preload="metadata"></video>` : `<img src="${esc(img)}" alt="" loading="lazy">`}</div>` : ''}
+    </div>`;
+  }).join('');
 
   root.innerHTML = `
     ${pubOpen(d)}<div class="pub-inner">
@@ -1407,11 +1458,7 @@ function paintPubResult(root) {
         }).join('')}
       </div>
 
-      ${section('1', 'このタイプの特徴', 'description')}
-      ${section('2', 'よくある間違い', 'mistake')}
-      ${section('!', 'このまま放置すると…', 'risk', 'risk')}
-      ${section('3', '本来必要な改善方法', 'solution')}
-      ${section('4', '当院でできること', 'service')}
+      ${sectionsHtml}
 
       ${rt.recommendedMenu ? `
         <div class="res-menu"${edAttr(`rt:${rt.key}:recommendedMenu`)}>
@@ -1502,7 +1549,10 @@ document.addEventListener('click', (e) => {
   }
   if (action === 'rt-img-remove') {
     const rt = editState.resultTypes.find(x => x.key === act.dataset.k);
-    if (rt) { rt.image = ''; paintTab(); }
+    if (!rt) return;
+    if (!act.dataset.sec) rt.image = '';
+    else if (sectionDef(act.dataset.sec)) rt[act.dataset.sec + 'Image'] = '';
+    paintTab();
     return;
   }
   if (action === 'diag-img-remove') { editState[act.dataset.f] = ''; paintTab(); return; }
@@ -1561,7 +1611,7 @@ document.addEventListener('change', (e) => {
     const q = editState.questions.find(x => x.id === t.dataset.q);
     if (q) { q.type = t.value; paintTab(); }
   } else if (t.dataset && t.dataset.imgupload != null && t.files && t.files[0]) {
-    uploadToSlot(t.files[0], 'rt:' + t.dataset.k); t.value = '';
+    uploadToSlot(t.files[0], 'rt:' + t.dataset.k + (t.dataset.sec ? ':' + t.dataset.sec : '')); t.value = '';
   } else if (t.dataset && t.dataset.diagupload && t.files && t.files[0]) {
     uploadToSlot(t.files[0], t.dataset.diagupload); t.value = '';
   } else if (t.dataset && t.dataset.cupload != null && t.files && t.files[0]) {
